@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createSeed } from '../src/data/seed.ts';
+import { ledger, metrics, outstanding, periodStart, today, trend, total, validateData } from '../src/lib/business.ts';
+import { mockReply } from '../src/services/assistant.ts';
+test('演示数据完整，版本和关联有效',()=>{assert.ok(validateData(createSeed()));});
+test('订单回款只计入一次，修改回款同步收入',()=>{const d=createSeed();const before=metrics(d,'all').revenue;const o=d.orders.find(o=>o.status==='进行中')!;o.paidAmount+=100;assert.equal(metrics(d,'all').revenue,before+100);assert.equal(ledger(d).filter(t=>t.orderId===o.id).length,1);});
+test('取消订单不计入应收和收入',()=>{const d=createSeed();const o=d.orders[0];o.status='已取消';o.paidAmount=0;assert.equal(outstanding(o),0);assert.equal(ledger(d).some(t=>t.orderId===o.id),false);});
+test('本周趋势和指标口径一致',()=>{const d=createSeed();assert.equal(total(trend(d,'week').map(x=>x.revenue)),metrics(d,'week').revenue);assert.equal(total(trend(d,'month').map(x=>x.expense)),metrics(d,'month').expense);});
+test('非法金额、SKU、关联、日期拒绝入库',()=>{let d=createSeed();d.orders[0].paidAmount=d.orders[0].amount+1;assert.equal(validateData(d),false);d=createSeed();d.products[0].sku=d.products[1].sku;assert.equal(validateData(d),false);d=createSeed();d.orders[0].customerId='missing';assert.equal(validateData(d),false);d=createSeed();d.orders[0].date='2026-02-30';assert.equal(validateData(d),false);d=createSeed();d.orders[0].dueDate='2000-01-01';assert.equal(validateData(d),false);});
+test('AI 读取实时数据，包含新录入回款和缺货',()=>{const d=createSeed();const before=mockReply('本月收入',d);d.transactions.push({id:'test',title:'演示服务收入',type:'收入',category:'其他收入',amount:100,date:today(),notes:''});assert.notEqual(mockReply('本月收入',d),before);assert.match(mockReply('库存预警',d),/亚克力展示架/);assert.match(mockReply('未回款订单',d),/YJ-/);assert.match(mockReply('本周经营周报',d),new RegExp(periodStart('week')));});
+test('空数据仍可计算和生成报告',()=>{const d={version:1 as const,customers:[],orders:[],products:[],transactions:[]};assert.ok(validateData(d));assert.equal(metrics(d).revenue,0);assert.ok(!mockReply('经营总结',d).includes('NaN'));});

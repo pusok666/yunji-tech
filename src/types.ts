@@ -1,0 +1,9 @@
+export type Customer = { id: string; name: string; contact: string; phone: string; email: string; industry: string; level: '重点客户' | '普通客户' | '潜在客户'; date: string; notes: string };
+export type Order = { id: string; customerId: string; title: string; category: string; amount: number; paidAmount: number; status: '待确认' | '进行中' | '已完成' | '已取消'; date: string; dueDate: string; notes: string };
+export type Product = { id: string; name: string; sku: string; category: string; stock: number; threshold: number; price: number; cost: number; unit: string; notes: string };
+export type Transaction = { id: string; title: string; type: '收入' | '支出'; category: string; amount: number; date: string; notes: string; orderId?: string };
+export type BusinessData = { version: 1; customers: Customer[]; orders: Order[]; products: Product[]; transactions: Transaction[] };
+export type EntityKey = 'customers' | 'orders' | 'products' | 'transactions';
+export type Entity = Customer | Order | Product | Transaction;
+export type Period = 'week' | 'month' | 'year' | 'all';
+export type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; time: string };
