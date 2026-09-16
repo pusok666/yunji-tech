@@ -54,3 +54,10 @@ ECharts、Ant Design 分包超过 Vite 默认 500 kB 阈值，产生体积建议
 5. GitHub 目标：`https://github.com/pusok666/-.git`，分支 `main`。如提交后网络中断，检查 `git status`、`git remote -v` 后继续 `git push -u origin main`，不强制覆盖远程历史。
 
 本机详细过程保存在未纳入 Git 的 `LOCAL_CHECKPOINT.md`，截图和测试结果在未纳入 Git 的 `test-results/`。
+
+## 其他设备访问
+
+- 完整教程：`ACCESS_GUIDE.md`，包括独立安装、局域网访问、数据迁移与公网部署路径。
+- AI 消息 ID 已兼容普通 HTTP 来源，不再强制依赖安全上下文专用的 `crypto.randomUUID`。
+- 针对此场景的生产构建浏览器回归测试：`node tests/lan.mjs`。
+- 已通过该回归：真实普通 HTTP 测试来源下登录、AI 连续发送、消息 ID 唯一、刷新保留对话，控制台零错误；没有开放实际局域网端口或修改防火墙。
