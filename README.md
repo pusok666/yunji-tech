@@ -1,6 +1,6 @@
 # 云迹科技 · 智能经营工作台
 
-面向一人公司、个体经营者和微型团队的轻量经营管理 MVP，年度汇报。完整前端应用，使用本地 Mock 数据与 localStorage，无后端或 API Key。
+面向一人公司、个体经营者和微型团队的轻量经营管理 MVP，使用本地 Mock 数据与 localStorage，无后端或 API Key。
 
 **换电脑安装、手机/局域网访问及防火墙排查完整流程：[ACCESS_GUIDE.md](ACCESS_GUIDE.md)。**
 
