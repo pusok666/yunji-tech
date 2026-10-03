@@ -1,0 +1,11 @@
+.git
+node_modules
+dist
+.local
+backups
+test-results
+.env
+.env.*
+*.log
+*.pid
+LOCAL_CHECKPOINT.md

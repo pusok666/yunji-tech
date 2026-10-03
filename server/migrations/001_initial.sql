@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS schema_migrations (version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS users (id text PRIMARY KEY, email text UNIQUE NOT NULL, name text NOT NULL, password_hash text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS workspaces (id text PRIMARY KEY, name text NOT NULL, owner_id text NOT NULL REFERENCES users(id), revision integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS sessions (token_hash text PRIMARY KEY, user_id text NOT NULL REFERENCES users(id), workspace_id text NOT NULL REFERENCES workspaces(id), csrf_token text NOT NULL, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS records (workspace_id text NOT NULL REFERENCES workspaces(id), kind text NOT NULL CHECK (kind IN ('customers','orders','products','transactions')), id text NOT NULL, payload jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,kind,id));
+CREATE TABLE IF NOT EXISTS receipts (workspace_id text NOT NULL REFERENCES workspaces(id), id text NOT NULL, order_id text NOT NULL, payload jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,id));
+CREATE TABLE IF NOT EXISTS stock_movements (workspace_id text NOT NULL REFERENCES workspaces(id), id text NOT NULL, product_id text NOT NULL, payload jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,id));
+CREATE TABLE IF NOT EXISTS audit_events (id text PRIMARY KEY, workspace_id text NOT NULL REFERENCES workspaces(id), user_id text NOT NULL REFERENCES users(id), action text NOT NULL, entity_kind text NOT NULL, entity_id text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS audit_workspace ON audit_events(workspace_id,created_at);
+CREATE TABLE IF NOT EXISTS idempotency_keys (workspace_id text NOT NULL REFERENCES workspaces(id), key text NOT NULL, request_hash text NOT NULL, response jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,key));
+INSERT INTO schema_migrations(version) VALUES (1) ON CONFLICT DO NOTHING;

@@ -90,11 +90,11 @@ pnpm audit
 
 ## 继续到商业化
 
-- [你需要准备什么](docs/USER_ACTIONS.md)
-- [分阶段路线与验收](docs/COMMERCIAL_PLAN.md)
-- [上线检查表](docs/RELEASE_CHECKLIST.md)
-- [部署、备份、恢复与回退](docs/OPERATIONS.md)
-- [接口契约](docs/API_CONTRACT.md)
+- [你需要准备什么](USER_ACTIONS.md)
+- [分阶段路线与验收](COMMERCIAL_PLAN.md)
+- [上线检查表](RELEASE_CHECKLIST.md)
+- [部署、备份、恢复与回退](OPERATIONS.md)
+- [接口契约](API_CONTRACT.md)
 
 真实云部署、邮件验证/密码找回、成员权限、真实模型、订阅收费、支付通道和持续运维均不得在未完成验收时宣称就绪。当前快照式接口适合少量受邀用户；分页、长期流水归档与多实例限流需在扩容前补齐。
 
