@@ -15,6 +15,10 @@ export function periodStart(period: Period) {
   return period === 'all' ? '0000-01-01' : localDate(d);
 }
 export function ledger(data: BusinessData): Transaction[] {
+  if(data.receipts) return [...data.transactions,...data.receipts.map(r=>{
+    const order=data.orders.find(o=>o.id===r.orderId);
+    return {id:r.id,orderId:r.orderId,title:`${order?.title||r.orderId} · ${r.type}`,type:r.type==='收款'?'收入' as const:'支出' as const,category:r.type==='退款'?'订单退款':order?.category||'订单回款',amount:r.amount,date:r.date,notes:r.notes};
+  })].sort((a,b)=>b.date.localeCompare(a.date));
   return [...data.transactions, ...data.orders.filter(o=>o.paidAmount>0 && o.status!=='已取消').map(o=>({id:`receipt-${o.id}`, orderId:o.id, title:`${o.title} · 订单回款`, type:'收入' as const, category:o.category, amount:o.paidAmount, date:o.date, notes:'随订单已收金额同步，按订单日期统计'}))].sort((a,b)=>b.date.localeCompare(a.date));
 }
 export function metrics(data: BusinessData, period: Period = 'month') {

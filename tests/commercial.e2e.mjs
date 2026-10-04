@@ -27,7 +27,7 @@ async function shutdown(){if(server){server.closeAllConnections();await new Prom
 async function step(name,run){const start=Date.now();try{await run();steps.push({name,passed:true,ms:Date.now()-start});console.log(`PASS ${name}`);}catch(error){steps.push({name,passed:false,error:error.message});throw error;}}
 async function route(value){await page.goto(base+'/#'+value);await page.locator('.main-content').waitFor();}
 async function dialog(){const target=page.getByRole('dialog');await target.waitFor();return target;}
-async function select(scope,label,text){await scope.getByLabel(label,{exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText(text,{exact:true}).click();}
+async function select(scope,label,text){await scope.getByLabel(label,{exact:true}).press('ArrowDown');await page.locator('.ant-select-dropdown:visible').getByText(text,{exact:true}).click();}
 async function saveForm(){const d=await dialog();const saved=page.waitForResponse(r=>r.url().includes('/api/records/')&&r.request().method()==='PUT');await d.getByRole('button',{name:'保存记录'}).click();const response=await saved;assert.equal(response.status(),200,await response.text());await d.waitFor({state:'hidden'});}
 async function snapshot(){return page.evaluate(async()=>{const r=await fetch('/api/data');if(!r.ok)throw Error('data '+r.status);return r.json();});}
 async function accountAction(name){await page.locator('.account-button').click();await page.getByRole('menuitem',{name}).click();}
@@ -62,7 +62,7 @@ try{
     await d.getByRole('button',{name:/^关\s*闭$/}).click();
   });
   await step('关联原收款退款并保留历史流水',async()=>{
-    await page.getByRole('button',{name:'收退款',exact:true}).click();const d=await dialog();await select(d,'操作类型','登记退款');await d.getByLabel('原收款流水',{exact:true}).click();await page.locator('.ant-select-dropdown:visible .ant-select-item-option').first().click();await d.getByLabel('退款金额（元）',{exact:true}).fill('100');
+    await page.getByRole('button',{name:'收退款',exact:true}).click();const d=await dialog();await select(d,'操作类型','登记退款');await d.getByLabel('原收款流水',{exact:true}).press('ArrowDown');await page.locator('.ant-select-dropdown:visible .ant-select-item-option').first().click();await d.getByLabel('退款金额（元）',{exact:true}).fill('100');
     const done=page.waitForResponse(r=>r.url().includes('/payments')&&r.request().method()==='POST');await d.getByRole('button',{name:'登记退款',exact:true}).click();assert.equal((await done).status(),200);
     const state=await snapshot();assert.equal(state.data.orders[0].paidAmount,900);assert.equal(state.data.receipts.length,3);await d.getByRole('button',{name:/^关\s*闭$/}).click();
   });
@@ -79,6 +79,11 @@ try{
     await page.evaluate(async()=>{const session=await(await fetch('/api/auth/session')).json();const state=await(await fetch('/api/data')).json();const c=state.data.customers[0];const r=await fetch('/api/records/customers/'+c.id,{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrfToken,'If-Match':`"${state.revision}"`,'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({value:{...c,notes:'来自另一设备'}})});if(!r.ok)throw Error('concurrent write failed');});
     const conflict=page.waitForResponse(r=>r.url().includes('/api/records/')&&r.request().method()==='PUT');await d.getByRole('button',{name:'保存记录'}).click();assert.equal((await conflict).status(),409);assert.equal(await d.getByLabel('联系人',{exact:true}).inputValue(),'冲突后联系人');
     await d.getByRole('button',{name:'刷新并保留输入'}).click();await d.getByRole('button',{name:'保存记录'}).waitFor();await saveForm();const merged=(await snapshot()).data.customers[0];assert.equal(merged.contact,'冲突后联系人');assert.equal(merged.notes,'来自另一设备','未修改字段必须保留另一设备的新值');
+  });
+  await step('同字段冲突需要明确选择',async()=>{
+    await page.getByRole('button',{name:'编辑验收客户已编辑',exact:true}).click();const d=await dialog();await d.getByLabel('联系人',{exact:true}).fill('我确认的联系人');
+    await page.evaluate(async()=>{const session=await(await fetch('/api/auth/session')).json();const state=await(await fetch('/api/data')).json();const c=state.data.customers[0];const r=await fetch('/api/records/customers/'+c.id,{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrfToken,'If-Match':`"${state.revision}"`,'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({value:{...c,contact:'其他设备联系人'}})});if(!r.ok)throw Error('concurrent field write failed');});
+    const conflicted=page.waitForResponse(r=>r.url().includes('/api/records/')&&r.request().method()==='PUT');await d.getByRole('button',{name:'保存记录'}).click();assert.equal((await conflicted).status(),409);await d.getByRole('button',{name:'刷新并保留输入'}).click();await d.getByRole('button',{name:'保存记录'}).click();await d.getByText('检测到相同字段的并发修改',{exact:true}).waitFor();assert.equal((await snapshot()).data.customers[0].contact,'其他设备联系人');await d.getByRole('button',{name:'保留我的修改',exact:true}).click();await saveForm();assert.equal((await snapshot()).data.customers[0].contact,'我确认的联系人');
   });
   await step('服务器经营助手连续查询与规则标识',async()=>{
     await route('/assistant');for(const q of ['查询未回款订单','有哪些库存预警？','生成本周经营周报']){await page.getByLabel('向经营助手提问').fill(q);const done=page.waitForResponse(r=>r.url().includes('/api/assistant')&&r.request().method()==='POST');await page.getByRole('button',{name:'发送消息'}).click();assert.equal((await done).status(),200);await page.locator('.thinking').waitFor({state:'hidden'});}
@@ -97,6 +102,32 @@ try{
   });
   await step('退出登录与重新登录',async()=>{
     await accountAction('退出工作台');await page.getByRole('button',{name:/登录工作台/}).waitFor();await page.getByLabel('邮箱',{exact:true}).fill(email);await page.getByLabel('密码',{exact:true}).fill(password);await page.getByRole('button',{name:/登录工作台/}).click();await page.locator('.main-content').waitFor();assert.equal((await snapshot()).data.orders[0].paidAmount,900);await page.screenshot({path:path.join(output,'dashboard.png'),fullPage:true});
+  });
+  await step('旧账号慢响应及旧401不会覆盖或退出新会话',async()=>{
+    const otherEmail=`race-${randomUUID()}@example.test`;
+    for(const variant of ['old-data','old-401']){
+      let release,announce,finish,first=true;
+      const gate=new Promise(resolve=>{release=resolve;}),reached=new Promise(resolve=>{announce=resolve;}),completed=new Promise(resolve=>{finish=resolve;});
+      const intercept=async request=>{
+        if(!first){await request.continue();return;}
+        first=false;const response=await request.fetch();announce();await gate;
+        if(variant==='old-data')await request.fulfill({response});else await request.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:'旧会话已过期',code:'UNAUTHENTICATED'})});
+        finish();
+      };
+      await page.route('**/api/data',intercept);
+      try{
+        await page.getByRole('button',{name:'刷新数据',exact:true}).click();await reached;
+        await accountAction('退出工作台');await page.getByRole('button',{name:/登录工作台/}).waitFor();
+        if(variant==='old-data'){
+          await page.getByText('创建空间',{exact:true}).click();await page.getByLabel('你的姓名',{exact:true}).fill('第二账号');await page.getByLabel('经营空间名称',{exact:true}).fill('全新空空间');await page.getByLabel('邮箱',{exact:true}).fill(otherEmail);await page.getByLabel('密码',{exact:true}).fill(password);await page.getByLabel('确认密码',{exact:true}).fill(password);await page.getByRole('button',{name:'创建经营空间'}).click();
+        }else{await page.getByLabel('邮箱',{exact:true}).fill(email);await page.getByLabel('密码',{exact:true}).fill(password);await page.getByRole('button',{name:/登录工作台/}).click();}
+        await page.locator('.main-content').waitFor();release();await completed;
+        await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+        assert.ok((await page.locator('.workspace-switch').innerText()).includes(variant==='old-data'?'全新空空间':'商业化验收工作室'));
+        await page.getByRole('link',{name:'订单管理',exact:true}).click();await page.locator('.records-panel').waitFor();
+        assert.equal(await page.locator('.ant-table-row').count(),variant==='old-data'?0:1);
+      }finally{release();await page.unroute('**/api/data',intercept);}
+    }
   });
   await step('无页面异常及非预期控制台错误',async()=>{assert.deepEqual(errors,[]);});
   report.passed=true;

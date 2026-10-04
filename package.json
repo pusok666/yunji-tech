@@ -15,7 +15,8 @@
     "test:e2e": "node tests/commercial.e2e.mjs",
     "test:api": "node --experimental-strip-types --test tests/api.test.mjs",
     "test:security": "node --experimental-strip-types --test server/tests/hardening.test.ts",
-    "check": "pnpm run build && pnpm run typecheck:server && pnpm run test && pnpm run test:api && pnpm run test:security"
+    "check": "pnpm run build && pnpm run typecheck:server && pnpm run test && pnpm run test:api && pnpm run test:security",
+    "checkpoint": "node scripts/checkpoint.mjs"
   },
   "engines": {
     "node": ">=24.0.0"

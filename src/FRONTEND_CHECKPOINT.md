@@ -1,0 +1,35 @@
+# 商业化前端断点 · 2026-10-04
+
+仅修改 `D:\云迹科技-商业化\src`，未修改汇报版。
+
+## 已实现
+
+- 真实注册、登录、会话恢复、退出和密码修改；严格按 API 允许字段提交。
+- 服务器快照、CSRF、If-Match 版本保护、Idempotency-Key；异步成功后更新页面。网络与服务暂时失败保留原请求键；409 保留输入并提供刷新入口。
+- 四模块异步 CRUD。订单已收金额只读，独立收退款与流水；商品期初库存、后续出入库登记与原因记录。
+- 服务器导出备份，新格式仅向空空间恢复；删除演示重置入口。
+- 动态账号/空间、密码修改、操作审计。
+- AI 使用服务器授权空间数据并展示 rules/llm 模式；聊天页面内存保存，离开/退出即清理，无汇报版 localStorage 依赖。
+- 独立流水按实际日期生成现金流入、现金流出（包含退款）、收支结余，保留原图表布局。
+
+## 实际验证
+
+- TypeScript 编译通过：`node node_modules/typescript/bin/tsc -p tsconfig.json`。
+- Vite 生产构建通过，3639 modules，20.80 秒；仅存在 UI/图表包大于 500kB 的体积提示。
+- 人工对照后端 schema 检查字段与 ID 格式。
+- 浏览器 E2E 由 root 统一执行；不能以编译通过代替交互验收。
+
+## 交接
+
+- root 管 package/vite、tests、scripts、README、部署与 Git 检查点。
+- 未引用的旧 `src/services/assistant.ts` 本地模拟实现已移除。真实助手由 store 调服务器。
+- src 已冻结，等待 root 浏览器验证后继续修复发现的问题。
+
+## 第二轮联调修复 · 2026-10-04
+
+- 修复 Records 的 forceRender 隐藏表单与收退款表单共享 DOM id：所有 Form 分配独立 name。
+- 浏览器实际定位：修复前收款 label 的 for=amount，有两个同 ID 元素且 control 指向不可见输入；修复后 for=order-payments_amount，只有一个且可见，精确 getByLabel 可填写 400。
+- 新增 editMerge.ts。编辑只重新应用当前用户实际改动的字段；他人改动的未编辑字段保留。相同字段并发修改要求显式选择服务器值或我的修改；已删除记录不允许被旧表单重新创建。
+- store 增加 sessionEpoch，旧会话响应不能覆盖新账号空间，旧 401 不能清理新会话；低于当前 revision 的旧快照忽略。
+- TypeScript 与 Vite 重新通过：3640 modules，11.51 秒。纯函数不同字段合并、相同字段冲突验证通过。
+- 已冻结运行代码，root 执行收退款、库存、并发编辑、会话隔离的浏览器回归；review_plan 只读复核。

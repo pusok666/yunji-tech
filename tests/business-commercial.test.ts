@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ledger, metrics, outstanding, today, trend, total } from '../src/lib/business.ts';
 import type { BusinessData } from '../src/types.ts';
+import { mergeEditedFields } from '../src/lib/editMerge.ts';
 
 function fixture():BusinessData { return {
   version:1, customers:[], products:[], stockMovements:[],
@@ -16,3 +17,6 @@ test('退款后取消订单仍保留历史现金流',()=>{const d=fixture();d.re
 test('周月图表与统计使用同一现金口径',()=>{const d=fixture();assert.equal(total(trend(d,'week').map(x=>x.revenue)),metrics(d,'week').revenue);assert.equal(total(trend(d,'month').map(x=>x.expense)),metrics(d,'month').expense);});
 test('空经营空间可正常显示零值',()=>{const d:BusinessData={version:1,customers:[],orders:[],products:[],transactions:[],receipts:[],stockMovements:[]};assert.equal(metrics(d).revenue,0);assert.equal(metrics(d).profit,0);assert.deepEqual(ledger(d),[]);});
 test('已有服务器 receipts 空数组时不会回退到演示派生回款',()=>{const d=fixture();d.receipts=[];assert.equal(metrics(d,'all').revenue,0);});
+test('并发编辑只提交当前编辑者改动，保留另一设备新字段',()=>{const baseline={phone:'旧电话',notes:'旧备注'};const result=mergeEditedFields(baseline,{phone:'新电话',notes:'旧备注'},{phone:'旧电话',notes:'我的备注'});assert.deepEqual(result,{value:{phone:'新电话',notes:'我的备注'},conflicts:[]});});
+test('同一字段不同改动要求明确选择，不静默覆盖服务器值',()=>{const result=mergeEditedFields({phone:'旧电话'},{phone:'另一设备'},{phone:'我的号码'});assert.equal(result.value.phone,'另一设备');assert.deepEqual(result.conflicts,[{field:'phone',baseline:'旧电话',latest:'另一设备',mine:'我的号码'}]);});
+test('双方把字段改成相同值不产生无意义冲突',()=>{assert.deepEqual(mergeEditedFields({name:'旧名'},{name:'新名'},{name:'新名'}),{value:{name:'新名'},conflicts:[]});});
