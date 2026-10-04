@@ -26,6 +26,16 @@ try {
   $apiEntry = Join-Path $commercialRoot 'server\index.ts'
   $webEntry = Join-Path $commercialRoot 'node_modules\vite\bin\vite.js'
   Start-CommercialService 'api' 4100 $apiEntry @('--env-file-if-exists=.env', '--experimental-strip-types', ('"' + $apiEntry + '"'))
+  $apiReady = $false
+  for ($attempt=0; $attempt -lt 80; $attempt++) {
+    foreach ($child in $created) { if ($child.HasExited) { throw 'Commercial API exited. Inspect .local/api-error.log.' } }
+    try {
+      $health = Invoke-RestMethod -Uri 'http://127.0.0.1:4100/api/health' -TimeoutSec 2
+      if ($health.ok -and $health.service -eq 'yunji-commercial') { $apiReady=$true; break }
+    } catch {}
+    Start-Sleep -Milliseconds 250
+  }
+  if (-not $apiReady) { throw 'Commercial API did not become ready. Inspect .local/api-error.log.' }
   Start-CommercialService 'web' 5174 $webEntry @(('"' + $webEntry + '"'), '--host', '127.0.0.1', '--port', '5174', '--strictPort')
   $ready = $false
   for ($attempt=0; $attempt -lt 80; $attempt++) {

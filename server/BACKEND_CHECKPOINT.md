@@ -39,9 +39,22 @@ node --experimental-strip-types --test tests/api.test.mjs server/tests/hardening
 - 首轮测试 fixture 使用中文邮箱 local part，与前端/服务端邮箱规则不一致；由 root 修改为 ASCII 测试邮箱。库存 fixture 改为当前期初日期。业务断言未放松。
 - 修复的实质错误：跨模块 never 箭头函数导致 TS 不收窄；pg rowCount nullable；pg 迁移失败路径先 release 后 pool.end；恢复后同日流水排序；金额精度容差；改密与登录竞态。
 
+## 原生 PostgreSQL 验收补充（2026-10-04）
+
+- 使用 `.local/pg-native-tools` 中独立下载的原生 PostgreSQL 17.10，非 PGlite，未注册 Windows 服务。
+- 仅监听 `127.0.0.1:55439`。应用验收使用专用 `NOSUPERUSER / NOCREATEDB` 数据库 owner；随机口令仅保留于内存、子进程环境及初始化命名管道。
+- `node --experimental-strip-types scripts/test-postgres.mjs` 中真实 pg 驱动 API 验收：22/22 通过；生产 createApp 配置、健康接口和 HSTS 检查通过。
+- Windows 原生 PG 在中文绝对路径初始化发生编码失败，脚本临时将本项目 `.local` 映射到未使用 ASCII 盘符，数据仍位于商业目录。每次结束核验 PID 与数据目录后停库、清理本次 run 目录，再核对映射目标并移除自身映射。
+- 最终运行时间：2026-10-04 12:39:05–12:40:25（香港时间）。脚本 exit 0，真实 PostgreSQL API 22/22 通过，`apiPassed / normalRole / productionConfigPassed / dumpRestorePassed` 全部为 true。
+- `stopped=true / cleaned=true / mappingRemoved=true`：已停本次 PG、清理仅本次 run 集群目录、移除自己创建的 Z: 映射。工具包和验收报告保留在 `.local`。
+- 客户端工具采用 EDB 官方 `postgresql-17.11-4-windows-x64-binaries.zip`，运行版本 `pg_dump (PostgreSQL) 17.11`。下载源：`https://get.enterprisedb.com/postgresql/postgresql-17.11-4-windows-x64-binaries.zip`；本地 SHA256 与维护者在 `https://github.com/EnterpriseDB/edb-installers/issues/706` 发布值一致：`b9424ee7bc60b52450ff910a3630225df32e633f3cb29c1d126d9299d59aea28`。只提取 bin 到 `.local/pg-client-tools/pgsql/bin`，未执行安装器。
+- 使用 `pg_dump --format=custom --no-owner` 导出验收库，`pg_restore --exit-on-error --no-owner` 恢复到同一隔离集群中的第二个空库；两库 9 张核心表计数、收退款净额、库存变动汇总完全一致。
+- 恢复核对结果：users=4、workspaces=4、sessions=4、records=12、receipts=6、stock_movements=5、audit_events=13、idempotency_keys=12、schema_migrations=2；测试数据跨工作空间收退款净额合计 1800 元，库存变动净数量 13。
+- 原始证据：`.local/test-results/postgres-api.log` 与 `.local/test-results/postgres-verification.json`。本次只验证数据库恢复操作，没有配置生产定时备份或云端灾难恢复。
+
 ## 未完成与真实边界
 
-- 尚未在真实外部 PostgreSQL 或容器 PostgreSQL 跑这套 API 验收；设置专用 TEST_DATABASE_URL 后可复用 `tests/api.test.mjs`，不可指向生产库。
+- 已验证本机原生 PostgreSQL 17.10；尚未验证真实云数据库网络、TLS 和云平台备份。设置专用 TEST_DATABASE_URL 可复用 `tests/api.test.mjs`，不可指向生产库。
 - 目前一个 owner 对应一个空间，没有成员邀请/多角色、邮箱验证/邮件找回密码、订阅计费、支付回调、真实 LLM；需要后续阶段。
 - 登录限流为单进程内存计数。多实例部署需统一限流存储和可靠代理设置。
 - 幂等响应保留完整快照，适合小规模受邀试用；长期运行需明确幂等保留窗口、归档与数据库增长监控。

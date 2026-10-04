@@ -43,10 +43,21 @@
 ## 备份与恢复
 
 1. 在数据库服务商控制台启用自动备份及适合预算的时间点恢复，明确最多能接受丢失多久数据、多久恢复服务。
-2. 定期用官方 PostgreSQL 工具 `pg_dump` 制作独立备份。凭据使用服务商密钥/受保护环境变量，不写进命令历史。
-3. 用 `pg_restore` 恢复到全新的测试数据库，核对账户、空间、客户、订单、资金流水、库存流水和审计数量，以及收款净额和库存余额。
+2. 定期用官方 PostgreSQL 工具 `pg_dump --format=custom` 制作独立备份。凭据使用服务商密钥、受保护的 PostgreSQL service 文件和密码文件，不写进命令历史。备份保存到加密、限制访问的位置，设置保留周期。
+3. 用 `pg_restore --exit-on-error --no-owner` 恢复到全新的测试数据库，核对账户、空间、客户、订单、资金流水、库存流水和审计数量，以及收款净额和库存余额。
 4. 恢复演练不能覆盖运行中的数据库。确认完整后，发生真正故障时才按事先审批的恢复流程切换连接。
 5. 商户也可从页面导出 JSON，并恢复到新的空工作空间。现有有数据空间不会被覆盖。
+
+例如先在受保护的 PostgreSQL service 配置中定义 `yunji_source` 和 `yunji_restore_empty`（后者必须指向刚建好的独立空库），再执行：
+
+```bash
+pg_dump --dbname="service=yunji_source" --format=custom --no-owner --file="yunji-backup.dump"
+pg_restore --dbname="service=yunji_restore_empty" --exit-on-error --no-owner "yunji-backup.dump"
+```
+
+`--format=custom` 产生供 `pg_restore` 使用的归档；不要将默认纯 SQL 导出文件交给 `pg_restore`。客户端主版本应与源服务器兼容。此示例不自动切换生产连接，也不创建数据库。
+
+2026-10-04 已在本机独立 PostgreSQL 17.10 上完成 API 22 项验收，并用官方 17.11 客户端做 custom 备份和第二空库恢复；9 张表数量、收款净额及库存汇总一致。验证脚本 `scripts/test-postgres.mjs`、本机报告 `.local/test-results/postgres-verification.json`。这证明本机恢复流程已验证，云端定时任务、告警和实际恢复时间仍需部署后实测。
 
 官方参考：[PostgreSQL 备份](https://www.postgresql.org/docs/17/backup.html)、[Express 生产安全](https://expressjs.com/en/advanced/best-practice-security/)、[PGlite 本地存储](https://pglite.dev/docs/filesystems)。
 

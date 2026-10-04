@@ -1,12 +1,12 @@
 {
-  "updatedAt": "2026-10-03T23:38:30.016Z",
+  "updatedAt": "2026-10-04T05:15:52.543Z",
   "project": "yunji-business-commercial",
   "branch": "feat/commercial-pilot",
-  "head": "7861444be1e2ec9894238a903ac3b6c11530bcaf",
-  "workingTree": "M package.json\n M src/App.tsx\n M src/lib/business.ts\n M src/main.tsx\n M src/pages/Assistant.tsx\n M src/pages/Dashboard.tsx\n M src/pages/Login.tsx\n M src/pages/Records.tsx\n M src/pages/Statistics.tsx\n M src/readability.css\n D src/services/assistant.ts\n M src/store.tsx\n M src/types.ts\n M tests/business-commercial.test.ts\n M tests/commercial.e2e.mjs\n?? scripts/checkpoint.mjs\n?? src/FRONTEND_CHECKPOINT.md\n?? src/components/BusinessFlows.tsx\n?? src/lib/editMerge.ts\n?? src/pages/Settings.tsx\n?? src/services/api.ts",
+  "head": "d4874eeddcaae621fae7e145f86e558d5ba59e35",
+  "workingTree": "M CHECKPOINT.json\n M COMMERCIAL_PROGRESS.md\n M README.md\n M docs/COMMERCIAL_PLAN.md\n M docs/OPERATIONS.md\n M docs/RELEASE_CHECKLIST.md\n M docs/START_HERE.md\n M scripts/checkpoint.mjs\n M scripts/start-commercial.ps1\n M server/BACKEND_CHECKPOINT.md\n M src/FRONTEND_CHECKPOINT.md\n M src/pages/Records.tsx\n M src/pages/Settings.tsx\n M tests/commercial.e2e.mjs\n M vite.config.ts\n?? scripts/test-postgres.mjs",
   "browserVerification": {
-    "passed": false,
-    "finishedAt": "2026-10-03T19:04:03.375Z",
+    "passed": true,
+    "finishedAt": "2026-10-04T05:01:45.053Z",
     "steps": [
       {
         "name": "真实注册和空经营空间",
@@ -18,14 +18,78 @@
       },
       {
         "name": "新建订单并分次收款，金额不重复记账",
-        "passed": false
+        "passed": true
+      },
+      {
+        "name": "关联原收款退款并保留历史流水",
+        "passed": true
+      },
+      {
+        "name": "期初库存、出库和库存流水",
+        "passed": true
+      },
+      {
+        "name": "手工支出、资金流水与统计页面",
+        "passed": true
+      },
+      {
+        "name": "保存冲突保留表单，刷新后明确重试",
+        "passed": true
+      },
+      {
+        "name": "同字段冲突需要明确选择",
+        "passed": true
+      },
+      {
+        "name": "服务器经营助手连续查询与规则标识",
+        "passed": true
+      },
+      {
+        "name": "空间设置与操作审计可见",
+        "passed": true
+      },
+      {
+        "name": "真实导出与空空间导入备份",
+        "passed": true
+      },
+      {
+        "name": "服务与数据库重启后账户和经营数据保留",
+        "passed": true
+      },
+      {
+        "name": "八个工作页的手机布局与导航",
+        "passed": true
+      },
+      {
+        "name": "退出登录与重新登录",
+        "passed": true
+      },
+      {
+        "name": "旧账号慢响应及旧401不会覆盖或退出新会话",
+        "passed": true
+      },
+      {
+        "name": "无页面异常及非预期控制台错误",
+        "passed": true
       }
     ]
+  },
+  "postgresVerification": {
+    "finishedAt": "2026-10-04T04:40:25.796Z",
+    "version": "postgres (PostgreSQL) 17.10",
+    "clientVersion": "pg_dump (PostgreSQL) 17.11",
+    "apiPassed": true,
+    "normalRole": true,
+    "productionConfigPassed": true,
+    "dumpRestorePassed": true,
+    "stopped": true,
+    "cleaned": true,
+    "mappingRemoved": true
   },
   "resumeEntry": "COMMERCIAL_PROGRESS.md",
   "frontendCheckpoint": "src/FRONTEND_CHECKPOINT.md",
   "backendCheckpoint": "server/BACKEND_CHECKPOINT.md",
   "userActions": "docs/USER_ACTIONS.md",
   "protectedPresentationDirectory": "D:\\云迹科技",
-  "note": "This records state, not test success or a source backup. Preserve local changes and commit completed stages separately. No credentials or database contents are recorded."
+  "note": "Reports describe their recorded run, not any later edits. This records state, not a source or database backup. Preserve local changes and commit completed stages separately. No credentials or database contents are recorded."
 }

@@ -3,7 +3,7 @@ import { Alert, Button, Descriptions, Form, Input, Table, App as AntApp } from '
 import { ReloadOutlined } from '@ant-design/icons';
 import { PageHeading, Panel } from '../components/Shared';
 import { useStore, type AuditEvent } from '../store';
-const names:Record<string,string>={customers:'客户',orders:'订单',products:'商品',transactions:'收支',receipts:'收退款',stockMovements:'库存流水',create:'创建',update:'更新',delete:'删除',restore:'恢复备份',payment:'收退款',stock_movement:'库存变更'};
+const names:Record<string,string>={customers:'客户',orders:'订单',products:'商品',transactions:'收支',receipts:'收退款',stockMovements:'库存流水',create:'创建',update:'更新',delete:'删除',restore:'恢复备份',payment:'收退款',stock_movement:'库存变更','stock-in':'入库','stock-out':'出库',refund:'退款',receive:'收款'};
 export default function Settings(){
   const {session,changePassword,audit}=useStore();const {message}=AntApp.useApp();
   const [events,setEvents]=useState<AuditEvent[]>([]);const [loading,setLoading]=useState(false);const [saving,setSaving]=useState(false);const [error,setError]=useState('');const [form]=Form.useForm();

@@ -27,7 +27,8 @@ async function shutdown(){if(server){server.closeAllConnections();await new Prom
 async function step(name,run){const start=Date.now();try{await run();steps.push({name,passed:true,ms:Date.now()-start});console.log(`PASS ${name}`);}catch(error){steps.push({name,passed:false,error:error.message});throw error;}}
 async function route(value){await page.goto(base+'/#'+value);await page.locator('.main-content').waitFor();}
 async function dialog(){const target=page.getByRole('dialog');await target.waitFor();return target;}
-async function select(scope,label,text){await scope.getByLabel(label,{exact:true}).press('ArrowDown');await page.locator('.ant-select-dropdown:visible').getByText(text,{exact:true}).click();}
+async function select(scope,label,text){await scope.getByLabel(label,{exact:true}).press('ArrowDown');await page.locator('.ant-select-dropdown:visible .ant-select-item-option').getByText(text,{exact:true}).click();await page.locator('.ant-select-dropdown:visible').waitFor({state:'hidden'});}
+async function screenshot(name){await page.waitForFunction(()=>document.querySelectorAll('.ant-message-notice').length===0);await page.screenshot({path:path.join(output,name),fullPage:true,animations:'disabled'});}
 async function saveForm(){const d=await dialog();const saved=page.waitForResponse(r=>r.url().includes('/api/records/')&&r.request().method()==='PUT');await d.getByRole('button',{name:'保存记录'}).click();const response=await saved;assert.equal(response.status(),200,await response.text());await d.waitFor({state:'hidden'});}
 async function snapshot(){return page.evaluate(async()=>{const r=await fetch('/api/data');if(!r.ok)throw Error('data '+r.status);return r.json();});}
 async function accountAction(name){await page.locator('.account-button').click();await page.getByRole('menuitem',{name}).click();}
@@ -44,7 +45,7 @@ try{
     await page.getByRole('button',{name:'创建经营空间'}).click();await page.locator('.main-content').waitFor();
     assert.equal((await snapshot()).data.customers.length,0);
     assert.deepEqual(await page.evaluate(()=>Object.keys(localStorage).filter(k=>k.startsWith('yunji-'))),[]);
-    await page.screenshot({path:path.join(output,'dashboard-empty.png'),fullPage:true});
+    await screenshot('dashboard-empty.png');
   });
   await step('客户新增、搜索、编辑和无关联删除',async()=>{
     await route('/customers');await page.getByRole('button',{name:'新增客户'}).click();let d=await dialog();
@@ -62,7 +63,7 @@ try{
     await d.getByRole('button',{name:/^关\s*闭$/}).click();
   });
   await step('关联原收款退款并保留历史流水',async()=>{
-    await page.getByRole('button',{name:'收退款',exact:true}).click();const d=await dialog();await select(d,'操作类型','登记退款');await d.getByLabel('原收款流水',{exact:true}).press('ArrowDown');await page.locator('.ant-select-dropdown:visible .ant-select-item-option').first().click();await d.getByLabel('退款金额（元）',{exact:true}).fill('100');
+    await page.getByRole('button',{name:'收退款',exact:true}).click();const d=await dialog();await select(d,'操作类型','登记退款');await d.getByLabel('原收款流水',{exact:true}).press('ArrowDown');await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({hasText:'可退'}).first().click();await page.locator('.ant-select-dropdown:visible').waitFor({state:'hidden'});await d.getByLabel('退款金额（元）',{exact:true}).fill('100');
     const done=page.waitForResponse(r=>r.url().includes('/payments')&&r.request().method()==='POST');await d.getByRole('button',{name:'登记退款',exact:true}).click();assert.equal((await done).status(),200);
     const state=await snapshot();assert.equal(state.data.orders[0].paidAmount,900);assert.equal(state.data.receipts.length,3);await d.getByRole('button',{name:/^关\s*闭$/}).click();
   });
@@ -72,7 +73,7 @@ try{
   });
   await step('手工支出、资金流水与统计页面',async()=>{
     await route('/finance');await page.getByRole('button',{name:'新增收支'}).click();const d=await dialog();await d.getByLabel('收支事项',{exact:true}).fill('验收办公费用');await select(d,'收支类型','支出');await d.getByLabel('金额（元）',{exact:true}).fill('200');await saveForm();
-    assert.equal((await snapshot()).data.transactions[0].amount,200);await route('/statistics');await page.screenshot({path:path.join(output,'statistics.png'),fullPage:true});
+    const expense=(await snapshot()).data.transactions[0];assert.equal(expense.amount,200);assert.equal(expense.category,'其他支出');await route('/statistics');await screenshot('statistics.png');
   });
   await step('保存冲突保留表单，刷新后明确重试',async()=>{
     await route('/customers');await page.getByRole('button',{name:'编辑验收客户已编辑',exact:true}).click();const d=await dialog();await d.getByLabel('联系人',{exact:true}).fill('冲突后联系人');
@@ -87,7 +88,7 @@ try{
   });
   await step('服务器经营助手连续查询与规则标识',async()=>{
     await route('/assistant');for(const q of ['查询未回款订单','有哪些库存预警？','生成本周经营周报']){await page.getByLabel('向经营助手提问').fill(q);const done=page.waitForResponse(r=>r.url().includes('/api/assistant')&&r.request().method()==='POST');await page.getByRole('button',{name:'发送消息'}).click();assert.equal((await done).status(),200);await page.locator('.thinking').waitFor({state:'hidden'});}
-    assert.equal(await page.locator('.chat-message.assistant').count(),3);assert.ok((await page.locator('.chat-body').innerText()).includes('规则生成'));await page.screenshot({path:path.join(output,'assistant.png'),fullPage:true});
+    assert.equal(await page.locator('.chat-message.assistant').count(),3);assert.ok((await page.locator('.chat-body').innerText()).includes('规则生成'));await screenshot('assistant.png');
   });
   await step('空间设置与操作审计可见',async()=>{await route('/settings');await page.locator('.ant-table-row').first().waitFor();assert.ok(await page.locator('.ant-table-row').count()>0);});
   await step('真实导出与空空间导入备份',async()=>{
@@ -98,10 +99,10 @@ try{
     const expected=await snapshot(),port=new URL(base).port;await shutdown();await boot(Number(port));await page.reload();await page.locator('.main-content').waitFor();const actual=await snapshot();assert.deepEqual(actual,expected);
   });
   await step('八个工作页的手机布局与导航',async()=>{
-    await page.setViewportSize({width:390,height:844});for(const value of ['/','/customers','/orders','/inventory','/finance','/statistics','/assistant','/settings']){await route(value);const width=await page.evaluate(()=>({body:document.documentElement.scrollWidth,view:innerWidth}));assert.ok(width.body<=width.view+1,`${value}: ${JSON.stringify(width)}`);}await page.getByRole('button',{name:'打开导航'}).click();assert.ok(await page.locator('.sidebar.is-open').isVisible());await page.getByRole('button',{name:'关闭导航'}).click();await page.screenshot({path:path.join(output,'mobile-settings.png'),fullPage:true});await page.setViewportSize({width:1440,height:1000});
+    await page.setViewportSize({width:390,height:844});for(const value of ['/','/customers','/orders','/inventory','/finance','/statistics','/assistant','/settings']){await route(value);const width=await page.evaluate(()=>({body:document.documentElement.scrollWidth,view:innerWidth}));assert.ok(width.body<=width.view+1,`${value}: ${JSON.stringify(width)}`);}await page.getByRole('button',{name:'打开导航'}).click();assert.ok(await page.locator('.sidebar.is-open').isVisible());await page.getByRole('button',{name:'关闭导航'}).click();await screenshot('mobile-settings.png');await page.setViewportSize({width:1440,height:1000});
   });
   await step('退出登录与重新登录',async()=>{
-    await accountAction('退出工作台');await page.getByRole('button',{name:/登录工作台/}).waitFor();await page.getByLabel('邮箱',{exact:true}).fill(email);await page.getByLabel('密码',{exact:true}).fill(password);await page.getByRole('button',{name:/登录工作台/}).click();await page.locator('.main-content').waitFor();assert.equal((await snapshot()).data.orders[0].paidAmount,900);await page.screenshot({path:path.join(output,'dashboard.png'),fullPage:true});
+    await accountAction('退出工作台');await page.getByRole('button',{name:/登录工作台/}).waitFor();await page.getByLabel('邮箱',{exact:true}).fill(email);await page.getByLabel('密码',{exact:true}).fill(password);await page.getByRole('button',{name:/登录工作台/}).click();await page.locator('.main-content').waitFor();assert.equal((await snapshot()).data.orders[0].paidAmount,900);await screenshot('dashboard.png');
   });
   await step('旧账号慢响应及旧401不会覆盖或退出新会话',async()=>{
     const otherEmail=`race-${randomUUID()}@example.test`;
@@ -124,7 +125,7 @@ try{
         await page.locator('.main-content').waitFor();release();await completed;
         await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
         assert.ok((await page.locator('.workspace-switch').innerText()).includes(variant==='old-data'?'全新空空间':'商业化验收工作室'));
-        await page.getByRole('link',{name:'订单管理',exact:true}).click();await page.locator('.records-panel').waitFor();
+        await page.locator('nav a[href="#/orders"]').click();await page.locator('.records-panel').waitFor();
         assert.equal(await page.locator('.ant-table-row').count(),variant==='old-data'?0:1);
       }finally{release();await page.unroute('**/api/data',intercept);}
     }
