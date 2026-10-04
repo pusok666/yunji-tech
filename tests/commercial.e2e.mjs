@@ -29,6 +29,7 @@ async function route(value){await page.goto(base+'/#'+value);await page.locator(
 async function dialog(){const target=page.getByRole('dialog');await target.waitFor();return target;}
 async function select(scope,label,text){await scope.getByLabel(label,{exact:true}).press('ArrowDown');await page.locator('.ant-select-dropdown:visible .ant-select-item-option').getByText(text,{exact:true}).click();await page.locator('.ant-select-dropdown:visible').waitFor({state:'hidden'});}
 async function screenshot(name){await page.waitForFunction(()=>document.querySelectorAll('.ant-message-notice').length===0);await page.screenshot({path:path.join(output,name),fullPage:true,animations:'disabled'});}
+async function responseFor(predicate,action){const [response]=await Promise.all([page.waitForResponse(predicate),action()]);return response;}
 async function saveForm(){const d=await dialog();const saved=page.waitForResponse(r=>r.url().includes('/api/records/')&&r.request().method()==='PUT');await d.getByRole('button',{name:'保存记录'}).click();const response=await saved;assert.equal(response.status(),200,await response.text());await d.waitFor({state:'hidden'});}
 async function snapshot(){return page.evaluate(async()=>{const r=await fetch('/api/data');if(!r.ok)throw Error('data '+r.status);return r.json();});}
 async function accountAction(name){await page.locator('.account-button').click();await page.getByRole('menuitem',{name}).click();}
@@ -37,7 +38,7 @@ function watch(p){p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>
 try{
   await boot();
   browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:process.platform==='win32'?{channel:'msedge'}:{})});
-  context=await browser.newContext({viewport:{width:1440,height:1000},locale:'zh-CN'});page=await context.newPage();watch(page);page.setDefaultTimeout(12000);
+  context=await browser.newContext({viewport:{width:1440,height:1000},locale:'zh-CN'});await context.tracing.start({screenshots:true,snapshots:true,sources:false});page=await context.newPage();watch(page);page.setDefaultTimeout(12000);
   await step('真实注册和空经营空间',async()=>{
     await page.goto(base);await page.getByText('创建空间',{exact:true}).click();
     await page.getByLabel('你的姓名',{exact:true}).fill('验收经营者');await page.getByLabel('经营空间名称',{exact:true}).fill('商业化验收工作室');
@@ -58,7 +59,13 @@ try{
   await step('新建订单并分次收款，金额不重复记账',async()=>{
     await route('/orders');await page.getByRole('button',{name:'新增订单'}).click();let d=await dialog();await d.getByLabel('订单名称',{exact:true}).fill('验收服务订单');await select(d,'关联客户','验收客户已编辑');await d.getByLabel('订单金额（元）',{exact:true}).fill('1000');await saveForm();
     await page.getByRole('button',{name:'收退款',exact:true}).click();d=await dialog();
-    for(const amount of ['400','600']){await d.getByLabel('收款金额（元）',{exact:true}).fill(amount);const done=page.waitForResponse(r=>r.url().includes('/payments')&&r.request().method()==='POST');await d.getByRole('button',{name:'登记收款',exact:true}).click();assert.equal((await done).status(),200);await d.getByLabel('收款金额（元）',{exact:true}).waitFor();}
+    for(const amount of ['400','600']){
+      const field=d.getByLabel('收款金额（元）',{exact:true});await field.fill(amount);await field.press('Tab');assert.equal(Number(await field.inputValue()),Number(amount));await d.locator('.ant-btn-loading').waitFor({state:'hidden'});
+      const response=await responseFor(r=>r.url().includes('/payments')&&r.request().method()==='POST',()=>d.getByRole('button',{name:'登记收款',exact:true}).click());assert.equal(response.status(),200);
+      // HTTP completion precedes React's reset and unlock; wait before entering the next receipt.
+      await page.waitForFunction(()=>{const field=document.getElementById('order-payments_amount');return field&&!field.disabled&&field.value==='';});
+      await d.locator('.ant-btn-loading').waitFor({state:'hidden'});
+    }
     assert.equal((await snapshot()).data.orders[0].paidAmount,1000);
     await d.getByRole('button',{name:/^关\s*闭$/}).click();
   });
@@ -133,4 +140,4 @@ try{
   await step('无页面异常及非预期控制台错误',async()=>{assert.deepEqual(errors,[]);});
   report.passed=true;
 }catch(error){report.passed=false;report.failure=error.stack;console.error(error);if(page)await page.screenshot({path:path.join(output,'failure.png'),fullPage:true}).catch(()=>{});process.exitCode=1;}
-finally{report.finishedAt=new Date().toISOString();await writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2));if(browser)await browser.close();await shutdown();const relative=path.relative(os.tmpdir(),temp);if(!relative.startsWith('..')&&!path.isAbsolute(relative)&&path.basename(temp).startsWith('yunji-commercial-browser-'))await rm(temp,{recursive:true,force:true});}
+finally{report.finishedAt=new Date().toISOString();await writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2));if(context)await context.tracing.stop({path:path.join(output,'trace.zip')}).catch(()=>{});if(browser)await browser.close();await shutdown();const relative=path.relative(os.tmpdir(),temp);if(!relative.startsWith('..')&&!path.isAbsolute(relative)&&path.basename(temp).startsWith('yunji-commercial-browser-'))await rm(temp,{recursive:true,force:true});}

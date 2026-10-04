@@ -29,10 +29,10 @@ pnpm dev
 
 ## 在其他电脑继续开发
 
-商业分支推送后使用：
+商业分支已推送，使用：
 
 ```bash
-git clone --branch feat/commercial-pilot --single-branch https://github.com/pusok666/-.git yunji-commercial
+git clone --branch feat/commercial-pilot --single-branch https://github.com/pusok666/yunji-tech.git yunji-commercial
 cd yunji-commercial
 npm install --global pnpm@11.25.0
 pnpm install --frozen-lockfile
