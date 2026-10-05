@@ -81,6 +81,6 @@ test('嵌入式数据库关闭并重开后保留记录及迁移版本',async () 
     await disk.close(); disk=undefined;
     disk=await openDatabase({dataDir:join(directory,'database')});
     assert.equal((await disk.query('SELECT name FROM users WHERE id=$1',['persist-user'])).rows[0].name,'持久化');
-    assert.deepEqual((await disk.query('SELECT version FROM schema_migrations ORDER BY version')).rows.map(r=>r.version),[1,2]);
+    assert.deepEqual((await disk.query('SELECT version FROM schema_migrations ORDER BY version')).rows.map(r=>r.version),[1,2,3]);
   } finally { if(disk) await disk.close(); await rm(directory,{recursive:true,force:true}); }
 });

@@ -10,8 +10,7 @@ import { createApp } from '../server/app.ts';
 
 const origin = 'http://127.0.0.1:5174';
 const password = 'Test-only-Yunji-2026!';
-const now = new Date();
-const stockDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+let stockDate;
 let db, server, base, temp;
 before(async () => {
   temp = await mkdtemp(path.join(os.tmpdir(), 'yunji-commercial-api-'));
@@ -156,6 +155,8 @@ test('真实业务与租户安全验收', async t => {
     productA=product(randomUUID());
     const created=ok(await a.put('products',productA));
     assert.equal(created.data.stockMovements.filter(m=>m.productId===productA.id).reduce((sum,m)=>sum+m.delta,0),10);
+    stockDate=created.data.stockMovements.find(m=>m.productId===productA.id).date;
+    assert.match(stockDate,/^\d{4}-\d{2}-\d{2}$/);
     const move={id:randomUUID(),productId:productA.id,delta:-3,date:stockDate,notes:'交付出库'};
     const headers={'If-Match':`"${a.revision}"`,'Idempotency-Key':randomUUID()};
     ok(await a.mutate('POST',`/api/products/${productA.id}/stock-movements`,move,headers));

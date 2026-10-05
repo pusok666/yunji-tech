@@ -48,7 +48,7 @@ const adminName='yunji_test_admin',appName='yunji_test_app';
 const makeUrl=(name,password,database)=>`postgresql://${name}:${password}@127.0.0.1:${port}/${database}`;
 const dbName='yunji_api_test', restoredName='yunji_restore_test';
 const admin=new pg.Client({connectionString:makeUrl(adminName,adminPassword,'postgres')});
-const report={startedAt:new Date().toISOString(),database:'postgres',port,host:'127.0.0.1',version:'',apiPassed:false,normalRole:false,productionConfigPassed:false,dumpRestorePassed:false,stopped:false,cleaned:false,mappingRemoved:false};
+const report={startedAt:new Date().toISOString(),database:'postgres',port,host:'127.0.0.1',version:'',apiPassed:false,recoveryPassed:false,normalRole:false,productionConfigPassed:false,dumpRestorePassed:false,authStateRestorePassed:false,stopped:false,cleaned:false,mappingRemoved:false};
 let started=false,adminConnected=false,appDb,source,restored,productionServer;
 
 try {
@@ -88,26 +88,47 @@ try {
   console.log('Running API suite through pg with a non-superuser database owner...');
   const api=await command(process.execPath,['--experimental-strip-types','--test','tests/api.test.mjs'],{cwd:root,env:{...process.env,TEST_DATABASE_URL:appUrl},timeout:120000});
   console.log(api.stdout); await writeFile(join(reports,'postgres-api.log'),api.stdout+api.stderr,'utf8'); report.apiPassed=true;
+  const recovery=await command(process.execPath,['--experimental-strip-types','--test','server/tests/recovery.test.ts'],{cwd:root,env:{...process.env,RECOVERY_TEST_DATABASE_URL:appUrl},timeout:180000});
+  console.log(recovery.stdout);await writeFile(join(reports,'postgres-recovery.log'),recovery.stdout+recovery.stderr,'utf8');report.recoveryPassed=true;
   appDb=await openDatabase({url:appUrl});
-  productionServer=createApp({db:appDb,config:{production:true,appOrigin:'https://yunji.example.test',inviteCode:'test-only-'+randomBytes(16).toString('hex')}}).listen(0,'127.0.0.1');
+  productionServer=createApp({db:appDb,config:{production:true,appOrigin:'https://yunji.example.test',inviteCode:'test-only-'+randomBytes(16).toString('hex'),smtp:{host:'smtp.example.test',port:587,user:'isolated-test',password:randomBytes(16).toString('hex'),from:'accounts@example.test'}},mailer:{async send(){throw new Error('This production configuration check must never send mail');}}}).listen(0,'127.0.0.1');
   await once(productionServer,'listening');
   const health=await fetch(`http://127.0.0.1:${productionServer.address().port}/api/health`);
   assert.equal((await health.json()).database,'postgres'); assert.match(health.headers.get('strict-transport-security'),/max-age=/);
   report.productionConfigPassed=true;
   productionServer.closeAllConnections(); await new Promise(r=>productionServer.close(r)); productionServer=undefined;
   await appDb.close();appDb=undefined;
+  // Seed NONEMPTY authentication state only in this freshly created test cluster.
+  // Recovery tests use disposable schemas, so their rows are intentionally gone.
+  const owner=(await source.query('SELECT id,email,credential_version FROM users ORDER BY id LIMIT 1')).rows[0];
+  assert.ok(owner,'The API test must create at least one account');
+  await source.query('UPDATE users SET email_verified_at=now() WHERE id=$1',[owner.id]);
+  for(const [index,status] of ['pending','sent','sent','failed'].entries()) {
+    const sent=status==='sent'?new Date().toISOString():null;
+    const consumed=index===2?new Date().toISOString():null;
+    const invalidated=status==='failed'?new Date().toISOString():null;
+    await source.query('INSERT INTO auth_tokens(id,user_id,purpose,token_hash,email_snapshot,credential_version,expires_at,delivery_status,sent_at,consumed_at,invalidated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+      [randomUUID(),owner.id,index%2?'reset_password':'verify_email',randomBytes(32).toString('hex'),owner.email,owner.credential_version,new Date(Date.now()+3600000).toISOString(),status,sent,consumed,invalidated]);
+  }
+  await source.query('INSERT INTO auth_request_limits(key,window_started_at,attempts,next_allowed_at) VALUES($1,now(),3,now()+interval \'1 minute\')',[randomBytes(32).toString('hex')]);
   const dumpPath=join(dirname(dataDir),'test-backup.dump');
   const toolEnv={...process.env,PGHOST:'127.0.0.1',PGPORT:String(port),PGUSER:appName,PGPASSWORD:appPassword};
   await command(join(clientBin,'pg_dump.exe'),['--format=custom','--no-owner','--file',dumpPath,dbName],{env:toolEnv});
   await command(join(clientBin,'pg_restore.exe'),['--exit-on-error','--no-owner','--dbname',restoredName,dumpPath],{env:toolEnv});
   restored=new pg.Client({connectionString:restoreUrl});await restored.connect();
   const summarize=async client=>{
-    const counts={}; for(const table of ['users','workspaces','sessions','records','receipts','stock_movements','audit_events','idempotency_keys','schema_migrations']) counts[table]=Number((await client.query(`SELECT count(*)::int AS total FROM ${table}`)).rows[0].total);
+    const counts={}; for(const table of ['users','workspaces','sessions','records','receipts','stock_movements','audit_events','idempotency_keys','schema_migrations','auth_tokens','auth_request_limits']) counts[table]=Number((await client.query(`SELECT count(*)::int AS total FROM ${table}`)).rows[0].total);
     const money=(await client.query("SELECT COALESCE(sum(CASE WHEN payload->>'type'='收款' THEN (payload->>'amount')::numeric ELSE -(payload->>'amount')::numeric END),0)::text AS net FROM receipts")).rows[0].net;
     const stocks=(await client.query("SELECT COALESCE(sum((payload->>'delta')::bigint),0)::text AS total FROM stock_movements")).rows[0].total;
     return {counts,netReceipts:money,stockMovementTotal:stocks};
   };
-  const expected=await summarize(source),actual=await summarize(restored);assert.deepEqual(actual,expected);report.dumpRestorePassed=true;report.restoredSummary=actual;
+  const expected=await summarize(source),actual=await summarize(restored);assert.deepEqual(actual,expected);
+  assert.ok(expected.counts.auth_tokens>=4 && expected.counts.auth_request_limits>=1,'Authentication restore must test nonempty rows');
+  // Compare every token/limiter field and account credential state without logging secrets.
+  for(const sql of ['SELECT * FROM auth_tokens ORDER BY id','SELECT * FROM auth_request_limits ORDER BY key','SELECT id,password_hash,email_verified_at,credential_version FROM users ORDER BY id']) {
+    assert.deepEqual((await restored.query(sql)).rows,(await source.query(sql)).rows);
+  }
+  report.authStateRestorePassed=true;report.dumpRestorePassed=true;report.restoredSummary=actual;
   console.log('Production configuration and pg_dump/pg_restore checks passed.');
 } finally {
   if(productionServer) { productionServer.closeAllConnections(); await new Promise(r=>productionServer.close(r)); }

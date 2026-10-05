@@ -1,12 +1,12 @@
 {
-  "updatedAt": "2026-10-04T05:15:52.543Z",
+  "updatedAt": "2026-10-05T03:05:44.183Z",
   "project": "yunji-business-commercial",
   "branch": "feat/commercial-pilot",
-  "head": "d4874eeddcaae621fae7e145f86e558d5ba59e35",
-  "workingTree": "M CHECKPOINT.json\n M COMMERCIAL_PROGRESS.md\n M README.md\n M docs/COMMERCIAL_PLAN.md\n M docs/OPERATIONS.md\n M docs/RELEASE_CHECKLIST.md\n M docs/START_HERE.md\n M scripts/checkpoint.mjs\n M scripts/start-commercial.ps1\n M server/BACKEND_CHECKPOINT.md\n M src/FRONTEND_CHECKPOINT.md\n M src/pages/Records.tsx\n M src/pages/Settings.tsx\n M tests/commercial.e2e.mjs\n M vite.config.ts\n?? scripts/test-postgres.mjs",
+  "head": "95857a0288a19d4368c8dfcfce639208b9bc8022",
+  "workingTree": "M .env.example\n M .github/workflows/commercial.yml\n M COMMERCIAL_PROGRESS.md\n M README.md\n M docs/API_CONTRACT.md\n M docs/OPERATIONS.md\n M docs/RELEASE_CHECKLIST.md\n M docs/START_HERE.md\n M package.json\n M pnpm-lock.yaml\n M pnpm-workspace.yaml\n M scripts/checkpoint.mjs\n M scripts/test-postgres.mjs\n M server/BACKEND_CHECKPOINT.md\n M server/app.ts\n M server/business.ts\n M server/index.ts\n M server/tests/hardening.test.ts\n M src/App.tsx\n M src/FRONTEND_CHECKPOINT.md\n M src/lib/business.ts\n M src/pages/Dashboard.tsx\n M src/pages/Login.tsx\n M src/pages/Settings.tsx\n M src/readability.css\n M src/store.tsx\n M tests/api.test.mjs\n M tests/business-commercial.test.ts\n?? docs/AUTH_RECOVERY_PLAN.md\n?? server/mail.ts\n?? server/migrations/003_account_recovery.sql\n?? server/recovery.ts\n?? server/security.ts\n?? server/tests/recovery.test.ts\n?? src/lib/authLink.ts\n?? src/pages/AuthRecovery.tsx\n?? tests/auth-recovery.e2e.mjs",
   "browserVerification": {
     "passed": true,
-    "finishedAt": "2026-10-04T05:01:45.053Z",
+    "finishedAt": "2026-10-04T21:21:35.861Z",
     "steps": [
       {
         "name": "真实注册和空经营空间",
@@ -74,14 +74,58 @@
       }
     ]
   },
+  "authBrowserVerification": {
+    "passed": true,
+    "finishedAt": "2026-10-04T21:21:53.912Z",
+    "steps": [
+      {
+        "name": "注册后进入邮箱验证引导，不提前请求经营数据",
+        "passed": true
+      },
+      {
+        "name": "邮件验证链接先清除地址栏令牌，明确确认后才能进入经营空间",
+        "passed": true
+      },
+      {
+        "name": "已消费验证链接拒绝重放且保留当前账号",
+        "passed": true
+      },
+      {
+        "name": "验证后创建业务，另一浏览器登录同一账号",
+        "passed": true
+      },
+      {
+        "name": "公开找回入口对存在和不存在邮箱给出相同响应",
+        "passed": true
+      },
+      {
+        "name": "重置密码链接清理令牌并撤销其他浏览器会话",
+        "passed": true
+      },
+      {
+        "name": "旧密码失效，新密码可登录且经营数据保留",
+        "passed": true
+      },
+      {
+        "name": "重放已使用的重置链接被拒绝，手机页面无横向溢出",
+        "passed": true
+      },
+      {
+        "name": "邮件流程没有页面异常或非预期控制台错误",
+        "passed": true
+      }
+    ]
+  },
   "postgresVerification": {
-    "finishedAt": "2026-10-04T04:40:25.796Z",
+    "finishedAt": "2026-10-04T21:22:37.320Z",
     "version": "postgres (PostgreSQL) 17.10",
     "clientVersion": "pg_dump (PostgreSQL) 17.11",
     "apiPassed": true,
+    "recoveryPassed": true,
     "normalRole": true,
     "productionConfigPassed": true,
     "dumpRestorePassed": true,
+    "authStateRestorePassed": true,
     "stopped": true,
     "cleaned": true,
     "mappingRemoved": true

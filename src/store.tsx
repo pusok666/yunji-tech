@@ -3,7 +3,9 @@ import type { BusinessData, Entity, EntityKey, Receipt, StockMovement, ChatMessa
 import { api, ApiError } from './services/api';
 import { createMessageId } from './lib/messageId';
 
-export type Session = { user: {id:string;email:string;name:string}; workspace:{id:string;name:string;role:'owner'}; csrfToken:string };
+export type AuthCapabilities = {emailEnabled:boolean;verificationRequired:boolean};
+export type Session = { user: {id:string;email:string;name:string;emailVerified:boolean}; workspace:{id:string;name:string;role:'owner'}; csrfToken:string; auth:AuthCapabilities; emailDelivery?:'queued'|'disabled'|'unavailable' };
+export const needsEmailVerification=(identity:Session|null)=>Boolean(identity?.auth?.verificationRequired&&!identity.user.emailVerified);
 export type Snapshot = {data:BusinessData;revision:number};
 export type Backup = {format:'yunji-commercial-backup';version:1;exportedAt:string;data:BusinessData;revision:number};
 export type AuditEvent = {id:string;action:string;entityKind:string;entityId:string;createdAt:string};
@@ -13,6 +15,7 @@ type Store = {
   login:(values:{email:string;password:string})=>Promise<void>;
   register:(values:{email:string;password:string;name:string;workspaceName:string;inviteCode?:string})=>Promise<void>;
   logout:()=>Promise<void>; checkSession:()=>Promise<void>; refresh:()=>Promise<void>;
+  requestVerification:()=>Promise<void>; confirmEmail:(token:string)=>Promise<void>; resetPassword:(token:string,newPassword:string)=>Promise<void>;
   save:(key:EntityKey,value:Entity)=>Promise<void>; remove:(key:EntityKey,id:string)=>Promise<void>;
   pay:(value:Receipt)=>Promise<void>; adjustStock:(value:StockMovement)=>Promise<void>;
   exportBackup:()=>Promise<Backup>; restore:(backup:Backup)=>Promise<void>;
@@ -45,6 +48,7 @@ export function StoreProvider({children}:{children:ReactNode}) {
   }
   function apply(next:Snapshot) {if(next.revision<revision.current)return;revision.current=next.revision;setSnapshot(next);setReady(true);setError('');setConflict(false);}
   async function refresh() {
+    if(needsEmailVerification(sessionRef.current)){setReady(false);setError('');return;}
     const epoch=sessionEpoch.current;
     try {apply(await request<Snapshot>('/data'));retries.current.clear();}
     catch(e){if(epoch===sessionEpoch.current)setError((e as Error).message);throw e;}
@@ -52,7 +56,7 @@ export function StoreProvider({children}:{children:ReactNode}) {
   async function checkSession() {
     const epoch=sessionEpoch.current;
     setLoading(true);setError('');
-    try {const identity=await api<Session>('/auth/session');if(epoch!==sessionEpoch.current)return;setIdentity(identity);await refresh();}
+    try {const identity=await api<Session>('/auth/session');if(epoch!==sessionEpoch.current)return;if(sessionRef.current&&(sessionRef.current.user.id!==identity.user.id||sessionRef.current.workspace.id!==identity.workspace.id))clearIdentity();setIdentity(identity);await refresh();}
     catch(e) {if(epoch!==sessionEpoch.current)return;if(e instanceof ApiError&&e.status===401)clearIdentity();else setError((e as Error).message);}
     finally {if(epoch===sessionEpoch.current)setLoading(false);}
   }
@@ -81,6 +85,9 @@ export function StoreProvider({children}:{children:ReactNode}) {
   }
   return <Context.Provider value={{data:snapshot.data,revision:snapshot.revision,session,loading,ready,error,conflict,
     login:v=>authenticate('/auth/login',v),register:v=>authenticate('/auth/register',v),checkSession,refresh,
+    requestVerification:async()=>{await request('/auth/verification/request',{method:'POST',body:'{}'});},
+    confirmEmail:async token=>{const epoch=sessionEpoch.current;await api('/auth/verification/confirm',{method:'POST',body:JSON.stringify({token})});if(epoch!==sessionEpoch.current)throw new StaleSessionError();await checkSession();},
+    resetPassword:async(token,newPassword)=>{const epoch=sessionEpoch.current;await api('/auth/password/reset',{method:'POST',body:JSON.stringify({token,newPassword})});if(epoch!==sessionEpoch.current)throw new StaleSessionError();clearIdentity();},
     logout:async()=>{await request('/auth/logout',{method:'POST'});clearIdentity();},
     save:(key,value)=>mutate(`/records/${key}/${encodeURIComponent(value.id)}`,'PUT',{value}),
     remove:(key,id)=>mutate(`/records/${key}/${encodeURIComponent(id)}`,'DELETE'),

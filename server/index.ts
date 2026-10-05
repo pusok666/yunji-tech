@@ -1,16 +1,23 @@
 import { createApp } from './app.ts';
 import { openDatabase } from './db.ts';
+import { validateSmtp } from './mail.ts';
 
 const production = process.env.NODE_ENV === 'production';
 const appOrigin = process.env.APP_ORIGIN || (production ? '' : 'http://127.0.0.1:5174');
 const inviteCode = process.env.INVITE_CODE;
+const smtpPresent=['SMTP_HOST','SMTP_PORT','SMTP_USER','SMTP_PASSWORD','SMTP_FROM'].some(key=>!!process.env[key]);
+if(process.env.SMTP_SECURE&&!['true','false'].includes(process.env.SMTP_SECURE))throw new Error('SMTP_SECURE 只能为 true 或 false');
+const smtp=smtpPresent?{host:process.env.SMTP_HOST??'',port:Number(process.env.SMTP_PORT??587),user:process.env.SMTP_USER??'',password:process.env.SMTP_PASSWORD??'',from:process.env.SMTP_FROM??'',...(process.env.SMTP_SECURE?{secure:process.env.SMTP_SECURE==='true'}:{})}:undefined;
 if (production && (!process.env.DATABASE_URL || !appOrigin.startsWith('https://') || !inviteCode || inviteCode.length < 16)) throw new Error('生产启动已拒绝：需要 DATABASE_URL、HTTPS APP_ORIGIN 和至少 16 位 INVITE_CODE');
+if(production&&!smtp)throw new Error('生产启动已拒绝：需要完整 SMTP 配置并强制验证邮箱');
+if(smtp)validateSmtp(smtp);
+if(process.env.REQUIRE_VERIFIED_EMAIL==='true'&&!smtp)throw new Error('要求邮箱验证时必须配置 SMTP');
 const port = Number(process.env.PORT ?? 4100);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT 无效');
 const db = await openDatabase({ dataDir: process.env.DATA_DIR, url: process.env.DATABASE_URL });
-const app = createApp({ db, config: { appOrigin, production, inviteCode, trustProxy: process.env.TRUST_PROXY === '1' } });
+const app = createApp({ db, config: { appOrigin, production, inviteCode, smtp, requireVerifiedEmail:process.env.REQUIRE_VERIFIED_EMAIL==='true',trustProxy: process.env.TRUST_PROXY === '1' } });
 const server = app.listen(port, process.env.HOST ?? '127.0.0.1', () => console.log(`Yunji Commercial API listening on ${process.env.HOST ?? '127.0.0.1'}:${port} (${db.engine})`));
 server.on('error', async error => { console.error('API 启动失败:', error.message); await db.close(); process.exitCode = 1; });
 let shuttingDown = false;
-const stop = () => { if (shuttingDown) return; shuttingDown = true; server.close(async () => { await db.close(); process.exitCode = 0; }); setTimeout(() => process.exit(1), 10000).unref(); };
+const stop = () => { if (shuttingDown) return; shuttingDown = true; server.close(async () => { await app.locals.closeMail();await db.close(); process.exitCode = 0; }); setTimeout(() => process.exit(1), 20000).unref(); };
 process.on('SIGINT', stop); process.on('SIGTERM', stop);

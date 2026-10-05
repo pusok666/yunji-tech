@@ -3,7 +3,7 @@ import type { Database, Executor } from './db.ts';
 import { cents, dataSchema, emptyData, entitySchemas, fail, idSchema, movementSchema, parse, receiptSchema, today, validateRelations } from './validation.ts';
 import type { BusinessData, Kind } from './validation.ts';
 
-export type Identity = { userId: string; workspaceId: string; sessionHash: string; csrfToken: string; email: string; name: string; workspaceName: string };
+export type Identity = { userId: string; workspaceId: string; sessionHash: string; csrfToken: string; email: string; name: string; workspaceName: string; emailVerified: boolean };
 export type Snapshot = { data: BusinessData; revision: number };
 export async function readSnapshot(tx: Executor, workspaceId: string): Promise<Snapshot> {
   const data = emptyData();

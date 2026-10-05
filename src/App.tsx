@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { HashRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Alert, Avatar, Button, Dropdown, Modal, Result, Spin, Tooltip, App as AntApp } from 'antd';
 import { AppstoreOutlined, BarChartOutlined, BellOutlined, CloudOutlined, DownOutlined, DownloadOutlined, FileTextOutlined, InboxOutlined, LogoutOutlined, MenuOutlined, QuestionCircleOutlined, ReloadOutlined, SettingOutlined, TeamOutlined, ThunderboltOutlined, UploadOutlined, WalletOutlined } from '@ant-design/icons';
-import { useStore, type Backup } from './store';
+import { needsEmailVerification, useStore, type Backup } from './store';
 import { metrics, today } from './lib/business';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -10,6 +10,7 @@ import Records from './pages/Records';
 import Statistics from './pages/Statistics';
 import Assistant from './pages/Assistant';
 import Settings from './pages/Settings';
+import AuthLinkPage, { VerificationRequired } from './pages/AuthRecovery';
 const nav=[{path:'/',title:'经营概览',icon:<AppstoreOutlined/>},{path:'/customers',title:'客户管理',icon:<TeamOutlined/>},{path:'/orders',title:'订单管理',icon:<FileTextOutlined/>},{path:'/inventory',title:'库存管理',icon:<InboxOutlined/>},{path:'/finance',title:'收支管理',icon:<WalletOutlined/>},{path:'/statistics',title:'数据统计',icon:<BarChartOutlined/>},{path:'/assistant',title:'AI 经营助手',icon:<ThunderboltOutlined/>},{path:'/settings',title:'空间设置',icon:<SettingOutlined/>}];
 function Workspace(){
   const {message,modal}=AntApp.useApp();const location=useLocation();const navigate=useNavigate();
@@ -45,7 +46,20 @@ function Workspace(){
       </main>
     </div>
     <input type="file" accept="application/json,.json" ref={file} hidden onChange={e=>void importData(e.target.files?.[0])}/>
-    <Modal title="欢迎使用云迹科技" open={help} onCancel={()=>setHelp(false)} footer={<Button type="primary" onClick={()=>setHelp(false)}>开始经营</Button>}><div className="help-content"><h3>从第一笔业务开始</h3><p>新增客户 → 创建订单 → 在订单中登记实际收款 → 查看收支和统计。商品与服务可通过订单业务分类区分。</p><h3>数据与协作</h3><p>记录保存在当前账号的服务器经营空间。其他设备操作后，点击顶部刷新读取最新数据。保存冲突时，请先刷新并核对表单。</p><h3>收支与库存口径</h3><p>收款、退款按各自实际发生日期统计；收支结余为现金流入减支出，不代表会计利润。库存通过出入库记录手工维护，订单不会自动扣库存。</p><h3>助手与备份</h3><p>经营助手使用服务器授权数据，回答会注明规则或模型模式。右上角可导出经营备份，备份只允许恢复到空工作空间。</p></div></Modal>
+    <Modal title="欢迎使用云迹科技" open={help} onCancel={()=>setHelp(false)} footer={<Button type="primary" onClick={()=>setHelp(false)}>开始经营</Button>}><div className="help-content"><h3>从第一笔业务开始</h3><p>新增客户 → 创建订单 → 在订单中登记实际收款 → 查看收支和统计。商品与服务可通过订单业务分类区分。</p><h3>数据与协作</h3><p>记录保存在当前账号的服务器经营空间。其他设备操作后，点击顶部刷新读取最新数据。保存冲突时，请先刷新并核对表单。</p><h3>收支与库存口径</h3><p>经营日期统一按北京时间统计。收款、退款按各自实际发生日期统计；收支结余为现金流入减支出，不代表会计利润。库存通过出入库记录手工维护，订单不会自动扣库存。</p><h3>助手与备份</h3><p>经营助手使用服务器授权数据，回答会注明规则或模型模式。右上角可导出经营备份，备份只允许恢复到空工作空间。</p></div></Modal>
   </div>;
 }
-export default function App(){const {session,loading}=useStore();if(loading)return <div className="session-loading"><Spin size="large"/><p>正在连接你的经营空间…</p></div>;return <HashRouter><Routes><Route path="/login" element={session?<Navigate to="/" replace/>:<Login/>}/><Route path="*" element={session?<Workspace key={session.workspace.id}/>:<Navigate to="/login" replace/>}/></Routes></HashRouter>;}
+function AppRoutes(){
+  const {session,loading}=useStore();const location=useLocation();
+  const routeIdentity=useRef({signature:'',generation:0});
+  const signature=location.pathname+'|'+location.search+'|'+location.key;
+  if(routeIdentity.current.signature!==signature)routeIdentity.current={signature,generation:routeIdentity.current.generation+1};
+  const waiting=<div className="session-loading"><Spin size="large"/><p>正在连接你的经营空间…</p></div>;
+  return <Routes>
+    <Route path="/verify-email" element={<AuthLinkPage key={routeIdentity.current.generation} kind="verify-email"/>}/>
+    <Route path="/reset-password" element={<AuthLinkPage key={routeIdentity.current.generation} kind="reset-password"/>}/>
+    <Route path="/login" element={loading?waiting:session?<Navigate to="/" replace/>:<Login/>}/>
+    <Route path="*" element={loading?waiting:session?needsEmailVerification(session)?<VerificationRequired/>:<Workspace key={session.workspace.id}/>:<Navigate to="/login" replace/>}/>
+  </Routes>;
+}
+export default function App(){return <HashRouter><AppRoutes/></HashRouter>;}

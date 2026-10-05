@@ -40,3 +40,36 @@
 - 打开编辑表单不会自动改历史记录：不在当前类别选项中的旧分类保留为“原分类”，只有主动切换类型才执行联动。
 - 审计动作 receive/refund/stock-in/stock-out 显示收款/退款/入库/出库。
 - 未改已验收的并发合并、会话隔离、库存和收退款保存逻辑。TypeScript 编译通过；root 重新构建并执行最终浏览器回归。
+
+## S4 账号邮件验证与密码找回 · 2026-10-04
+
+- 完成公开 capabilities 读取与登录页邮件能力提示；未配置 SMTP 明确显示不可邮件找回，不伪称已发送。
+- 新增验证等待页、显式验证确认页、密码重置页及忘记密码弹窗；Settings 显示邮箱验证状态和重发入口。
+- 公共链接为 /#/verify-email?token=... 和 /#/reset-password?token=...；authLink.ts 初始化立即清理地址栏，只在模块/页面内存短暂保存。重复初始化可读同一令牌，页面离开/成功清理；不使用浏览器持久存储和日志。
+- 验证须用户点击“确认验证邮箱”才 POST，随后检查 session；不自动登录邮件对应账号。密码重置使用 12–128 字符和二次确认，成功清客户端会话并跳到登录页要求重新登录。
+- 保留 sessionEpoch；公开确认/重置在更新界面身份前检查世代。session 跨账号/空间变化先清旧快照，未验证且 verificationRequired=true 时不请求业务数据。
+- Session emailDelivery 支持 queued / disabled / unavailable；unavailable 明确账号已创建、邮件暂未排队。
+- 稳定 testid：verification-required、verify-email-page、reset-password-page、forgot-password-dialog、login-page。控件标签已交接 root。
+- 实际验证：TypeScript 通过，生产 Vite build 通过（3642 modules，33.56 秒），仅原有包体积提示；fragment helper 的首次清理、重复初始化、用途隔离、内存清理和重复参数拒绝检查通过。
+- 后端确认 reset 成功清当前浏览器会话 cookie；只在数据库撤销令牌所属账号的会话。
+- 运行代码已冻结。root 执行 fakeMailer 浏览器全流程与核心回归；review_plan 只读安全复核。没有真实外发邮件，不声称 SMTP 真实投递完成。
+
+## Linux CI 无障碍名称修复 · 2026-10-04
+
+- review_plan 真实 DOM 复现 AntD loading 离场图标仍带 aria-label=loading，导致按钮名称暂时为“loading 登记收款”。
+- 仅对收退款和库存提交按钮添加明确 aria-label（登记收款/登记退款、登记库存变动）；busy、disabled 和全部业务行为保持原状。
+- TypeScript 通过；root 重新构建并使用精确角色名验证 CI，不放松定位标准。
+
+
+## 北京时间经营日期统一 · 2026-10-05
+
+- today/localDate 明确使用 Asia/Shanghai；日期字符串转 UTC 日历进行前后日、周/月/年边界及趋势序列计算，避免浏览器/CI 宿主时区和夏令时影响。
+- today、daysAgo、periodStart、metrics、trend 接受可选 Date 参数，默认当前时刻，便于确定性测试。
+- 保留原始 YYYY-MM-DD 比较与实际收退款规则；日期有效性检查改为 UTC 日历往返，不使用宿主本地中午时间。
+- Dashboard 日期、审计时间标注北京时间，帮助说明统一经营日期口径；未改收款、库存、并发或邮件页面逻辑。
+- 实测 TypeScript 通过；TZ=UTC、America/Los_Angeles、Asia/Shanghai 三个独立子进程均通过跨午夜、周一、跨年、闰日和实际流水跨月筛选检查。
+- root 将固定时刻用例纳入正式测试并重新构建/浏览器回归；src 再次冻结。
+
+### 邮件恢复策略更正
+
+早前“reset成功清当前浏览器cookie”的记录已被安全审查决策替代：后端 reset 成功不发送 Set-Cookie，避免晚到响应删除后来登录的新账号cookie；仅数据库撤销目标账号旧会话。前端仍用 epoch 防护，只清理同世代客户端内存并引导重新登录，不清理途中新增身份。
