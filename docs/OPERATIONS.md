@@ -130,3 +130,6 @@ pg_restore --dbname="service=yunji_restore_empty" --exit-on-error --no-owner "yu
 ## 当前商业化门槛
 
 邮件验证和密码找回的软件流程已完成，真实 SMTP/发信域名/实际收件仍待验收。当前重点是单管理员受邀试用；订阅收费、在线支付、团队角色、多仓库存、自动订单扣库存、真实模型调用、云监控与自动备份不能在未接入验收时宣称完成。详见 RELEASE_CHECKLIST.md 和 USER_ACTIONS.md。
+
+2026-10-10 请求大小阶段：普通API 64 KiB、助手POST 2 MiB、恢复POST 5 MiB；413 BODY_TOO_LARGE 增加limitBytes，拒绝发生在写入前。
+请求大小阶段最终浏览器回归：经营16/16、邮件9/9，errors=[]；报告结束分别为 2026-10-10T15:47:49.563Z、2026-10-10T15:48:05.117Z。80项检查、构建与双端类型检查均通过。当前阶段远端CI待对应提交验收。

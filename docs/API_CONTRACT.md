@@ -79,3 +79,11 @@
 服务端导出 `createApp({db,config,mailer?})`；数据库导出 `openDatabase({dataDir?,url?})`，包含 query/transaction/close。config 包含 appOrigin、production、inviteCode，以及 smtp / requireVerifiedEmail 等配置。测试注入内存 fakeMailer，不使用真实收件人；配置和真实投递验收要求见 OPERATIONS.md。
 
 `pnpm test:idempotency` 覆盖去重回放、缓存条数/字节、并发与 003→004 迁移。默认隔离 PGlite；指定 `IDEMPOTENCY_TEST_DATABASE_URL`（缺省可继承 `RECOVERY_TEST_DATABASE_URL`）时，在专用 PostgreSQL 测试库创建随机独立 schema 并仅清理自己的 schema，不清 `public`。本轮新增 15 项在 PGlite 和原生 PostgreSQL 17.10 均通过；完整 check 共 77 项通过，经营浏览器 16/16、账号恢复浏览器 9/9 最终回归通过，非预期错误列表均为空；远端 CI 待最终提交验收。
+
+## 请求大小限制 · 2026-10-10
+
+解析 JSON 前按实际字节限制：普通 API 64 KiB；POST /api/assistant 2 MiB；POST /api/restore 5 MiB。接口大小写、结尾斜杠及查询参数按实际路由处理；其他方法和相似前缀不会获得较大限额。
+
+超限返回 413，保留兼容错误码 BODY_TOO_LARGE，并增加 limitBytes。拒绝发生在业务写入前。助手额外预算兼容现有最长合法 history，包括 Unicode 转义；没有降低字段校验或恢复校验要求。
+
+本轮 pnpm check 通过：13 业务 + 22 API + 11 安全 + 19 恢复 + 15 幂等，共 80 项，构建与双端类型检查通过。新增测试验证普通 64 KiB 精确边界、恢复 5 MiB 精确边界/超限不写入、助手最长合法历史及超限不修改数据。浏览器和本阶段远端测试仍以最终报告为准。

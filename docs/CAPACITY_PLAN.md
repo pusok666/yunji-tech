@@ -59,3 +59,5 @@ git diff --check -- server docs/CAPACITY_PLAN.md
 - 上述断网浏览器证据覆盖分次及足额收款，不代表已经验证全额退款或耗尽库存出库的断网回放场景；这些场景不能据本报告标记已通过。
 - 证据：`.local/test-results/postgres-verification.json`、`postgres-api.log`、`postgres-recovery.log`、`postgres-idempotency.log`；`test-results/commercial/report.json`、`test-results/auth-recovery/report.json`。本阶段提交及远端 CI 由主代理统一处理，以 `COMMERCIAL_PROGRESS.md` 为准。
 - 后端源代码已冻结，未自行提交 Git；检查点见 `server/BACKEND_CHECKPOINT.md`。
+
+普通请求64 KiB、助手2 MiB、恢复5 MiB解析前上限已在2026-10-10实现并通过边界测试。对象总数/备份生成体积及接近数据规模上限的验收仍属后续工作；不因限制请求而设置累计业务操作硬停。

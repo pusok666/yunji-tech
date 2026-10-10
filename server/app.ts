@@ -55,7 +55,16 @@ export function createApp({ db, config,mailer }: { db: Database; config: AppConf
   });
   app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'yunji-commercial', database: db.engine }));
   app.get('/api/auth/capabilities',(_req,res)=>res.json(auth));
-  app.use('/api', express.json({ limit: '5mb', strict: true }));
+  const ordinaryJson=express.json({limit:64*1024,strict:true});
+  const assistantJson=express.json({limit:2*1024*1024,strict:true});
+  const restoreJson=express.json({limit:5*1024*1024,strict:true});
+  app.use('/api',(req,res,next)=>{
+    const route=req.path.toLowerCase().replace(/\/$/,'');
+    const restoring=req.method==='POST'&&route==='/restore';
+    const assisting=req.method==='POST'&&route==='/assistant';
+    res.locals.requestBodyLimit=restoring?5*1024*1024:assisting?2*1024*1024:64*1024;
+    (restoring?restoreJson:assisting?assistantJson:ordinaryJson)(req,res,next);
+  });
   app.use('/api', (req, _res, next) => {
     if (!['GET','HEAD','OPTIONS'].includes(req.method) && req.get('Origin') !== config.appOrigin) return next(new HttpError(403, '请求来源不受信任', 'ORIGIN_REJECTED'));
     next();
@@ -202,7 +211,7 @@ export function createApp({ db, config,mailer }: { db: Database; config: AppConf
   }
   app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof HttpError) { res.status(error.status).json({ error: error.message, code: error.code }); return; }
-    if (error.type === 'entity.too.large') { res.status(413).json({ error: '请求内容过大，最大为 5 MB', code: 'BODY_TOO_LARGE' }); return; }
+    if (error.type === 'entity.too.large') { res.status(413).json({ error: '请求内容过大，请减少内容后重试。', code: 'BODY_TOO_LARGE', limitBytes:res.locals.requestBodyLimit }); return; }
     if (error instanceof SyntaxError && 'body' in error) { res.status(400).json({ error: 'JSON 格式不正确', code: 'INVALID_JSON' }); return; }
     console.error('[api] request failed', { type: error?.name ?? 'Error', code: error?.code ?? 'UNEXPECTED' });
     res.status(500).json({ error: '服务暂时无法处理请求，请稍后重试', code: 'INTERNAL_ERROR' });

@@ -1,12 +1,12 @@
 {
-  "updatedAt": "2026-10-10T10:44:05.708Z",
+  "updatedAt": "2026-10-10T15:48:47.510Z",
   "project": "yunji-business-commercial",
   "branch": "feat/commercial-pilot",
-  "head": "8cdbc05a3bd0684771078ba7c2493e8fe09bbb4e",
-  "workingTree": "M .github/workflows/commercial.yml\n M COMMERCIAL_PROGRESS.md\n M README.md\n M docs/API_CONTRACT.md\n M docs/OPERATIONS.md\n M docs/RELEASE_CHECKLIST.md\n M docs/START_HERE.md\n M package.json\n M scripts/checkpoint.mjs\n M scripts/test-postgres.mjs\n M server/BACKEND_CHECKPOINT.md\n M server/app.ts\n M server/business.ts\n M server/index.ts\n M server/tests/hardening.test.ts\n M src/App.tsx\n M src/FRONTEND_CHECKPOINT.md\n M src/components/BusinessFlows.tsx\n M src/pages/Records.tsx\n M src/services/api.ts\n M src/store.tsx\n M tests/commercial.e2e.mjs\n?? docs/CAPACITY_PLAN.md\n?? server/idempotency.ts\n?? server/migrations/004_idempotency_cache.sql\n?? server/tests/idempotency.test.ts\n?? src/lib/mutationFeedback.ts\n?? src/lib/operationReplay.ts",
+  "head": "f286f3d0d230882dc917471fbfca819369d0fd30",
+  "workingTree": "M COMMERCIAL_PROGRESS.md\n M README.md\n M docs/API_CONTRACT.md\n M docs/CAPACITY_PLAN.md\n M docs/OPERATIONS.md\n M docs/RELEASE_CHECKLIST.md\n M server/BACKEND_CHECKPOINT.md\n M server/app.ts\n M server/tests/hardening.test.ts",
   "browserVerification": {
     "passed": true,
-    "finishedAt": "2026-10-05T16:25:29.001Z",
+    "finishedAt": "2026-10-10T15:47:49.563Z",
     "steps": [
       {
         "name": "真实注册和空经营空间",
@@ -76,7 +76,7 @@
   },
   "authBrowserVerification": {
     "passed": true,
-    "finishedAt": "2026-10-05T16:25:43.413Z",
+    "finishedAt": "2026-10-10T15:48:05.117Z",
     "steps": [
       {
         "name": "注册后进入邮箱验证引导，不提前请求经营数据",
