@@ -2,11 +2,12 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import type { BusinessData, Entity, EntityKey, Receipt, StockMovement, ChatMessage } from './types';
 import { api, ApiError } from './services/api';
 import { createMessageId } from './lib/messageId';
+import type { ExpiredResponseReplay } from './lib/mutationFeedback';
 
 export type AuthCapabilities = {emailEnabled:boolean;verificationRequired:boolean};
 export type Session = { user: {id:string;email:string;name:string;emailVerified:boolean}; workspace:{id:string;name:string;role:'owner'}; csrfToken:string; auth:AuthCapabilities; emailDelivery?:'queued'|'disabled'|'unavailable' };
 export const needsEmailVerification=(identity:Session|null)=>Boolean(identity?.auth?.verificationRequired&&!identity.user.emailVerified);
-export type Snapshot = {data:BusinessData;revision:number};
+export type Snapshot = {data:BusinessData;revision:number;idempotency?:ExpiredResponseReplay};
 export type Backup = {format:'yunji-commercial-backup';version:1;exportedAt:string;data:BusinessData;revision:number};
 export type AuditEvent = {id:string;action:string;entityKind:string;entityId:string;createdAt:string};
 const empty = (): BusinessData => ({version:1,customers:[],orders:[],products:[],transactions:[],receipts:[],stockMovements:[]});
@@ -16,9 +17,9 @@ type Store = {
   register:(values:{email:string;password:string;name:string;workspaceName:string;inviteCode?:string})=>Promise<void>;
   logout:()=>Promise<void>; checkSession:()=>Promise<void>; refresh:()=>Promise<void>;
   requestVerification:()=>Promise<void>; confirmEmail:(token:string)=>Promise<void>; resetPassword:(token:string,newPassword:string)=>Promise<void>;
-  save:(key:EntityKey,value:Entity)=>Promise<void>; remove:(key:EntityKey,id:string)=>Promise<void>;
-  pay:(value:Receipt)=>Promise<void>; adjustStock:(value:StockMovement)=>Promise<void>;
-  exportBackup:()=>Promise<Backup>; restore:(backup:Backup)=>Promise<void>;
+  save:(key:EntityKey,value:Entity)=>Promise<ExpiredResponseReplay|undefined>; remove:(key:EntityKey,id:string)=>Promise<ExpiredResponseReplay|undefined>;
+  pay:(value:Receipt)=>Promise<ExpiredResponseReplay|undefined>; adjustStock:(value:StockMovement)=>Promise<ExpiredResponseReplay|undefined>;
+  exportBackup:()=>Promise<Backup>; restore:(backup:Backup)=>Promise<ExpiredResponseReplay|undefined>;
   changePassword:(values:{currentPassword:string;newPassword:string})=>Promise<void>;
   audit:()=>Promise<AuditEvent[]>;
   ask:(question:string,history:ChatMessage[])=>Promise<{answer:string;mode:'rules'|'llm'}>;
@@ -50,7 +51,9 @@ export function StoreProvider({children}:{children:ReactNode}) {
   async function refresh() {
     if(needsEmailVerification(sessionRef.current)){setReady(false);setError('');return;}
     const epoch=sessionEpoch.current;
-    try {apply(await request<Snapshot>('/data'));retries.current.clear();}
+    // Keep uncertain writes in this page's memory when refreshing business data.
+    // A response may have been lost after commit; retrying must retain its original key.
+    try {apply(await request<Snapshot>('/data'));}
     catch(e){if(epoch===sessionEpoch.current)setError((e as Error).message);throw e;}
   }
   async function checkSession() {
@@ -74,8 +77,10 @@ export function StoreProvider({children}:{children:ReactNode}) {
     retries.current.set(fingerprint,attempt);
     try {
       const result=await request<Snapshot>(path,{method,body:body===undefined?undefined:JSON.stringify(body),headers:{'If-Match':`"${attempt.revision}"`,'Idempotency-Key':attempt.key}});
-      retries.current.delete(fingerprint);
       if(result.revision<revision.current)await refresh();else apply(result);
+      if(epoch!==sessionEpoch.current)throw new StaleSessionError();
+      retries.current.delete(fingerprint);
+      return result.idempotency;
     } catch(e) {
       if(epoch!==sessionEpoch.current)throw new StaleSessionError();
       if(e instanceof ApiError&&e.status<500)retries.current.delete(fingerprint);

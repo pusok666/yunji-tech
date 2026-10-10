@@ -1,12 +1,12 @@
 {
-  "updatedAt": "2026-10-05T03:05:44.183Z",
+  "updatedAt": "2026-10-10T10:44:05.708Z",
   "project": "yunji-business-commercial",
   "branch": "feat/commercial-pilot",
-  "head": "95857a0288a19d4368c8dfcfce639208b9bc8022",
-  "workingTree": "M .env.example\n M .github/workflows/commercial.yml\n M COMMERCIAL_PROGRESS.md\n M README.md\n M docs/API_CONTRACT.md\n M docs/OPERATIONS.md\n M docs/RELEASE_CHECKLIST.md\n M docs/START_HERE.md\n M package.json\n M pnpm-lock.yaml\n M pnpm-workspace.yaml\n M scripts/checkpoint.mjs\n M scripts/test-postgres.mjs\n M server/BACKEND_CHECKPOINT.md\n M server/app.ts\n M server/business.ts\n M server/index.ts\n M server/tests/hardening.test.ts\n M src/App.tsx\n M src/FRONTEND_CHECKPOINT.md\n M src/lib/business.ts\n M src/pages/Dashboard.tsx\n M src/pages/Login.tsx\n M src/pages/Settings.tsx\n M src/readability.css\n M src/store.tsx\n M tests/api.test.mjs\n M tests/business-commercial.test.ts\n?? docs/AUTH_RECOVERY_PLAN.md\n?? server/mail.ts\n?? server/migrations/003_account_recovery.sql\n?? server/recovery.ts\n?? server/security.ts\n?? server/tests/recovery.test.ts\n?? src/lib/authLink.ts\n?? src/pages/AuthRecovery.tsx\n?? tests/auth-recovery.e2e.mjs",
+  "head": "8cdbc05a3bd0684771078ba7c2493e8fe09bbb4e",
+  "workingTree": "M .github/workflows/commercial.yml\n M COMMERCIAL_PROGRESS.md\n M README.md\n M docs/API_CONTRACT.md\n M docs/OPERATIONS.md\n M docs/RELEASE_CHECKLIST.md\n M docs/START_HERE.md\n M package.json\n M scripts/checkpoint.mjs\n M scripts/test-postgres.mjs\n M server/BACKEND_CHECKPOINT.md\n M server/app.ts\n M server/business.ts\n M server/index.ts\n M server/tests/hardening.test.ts\n M src/App.tsx\n M src/FRONTEND_CHECKPOINT.md\n M src/components/BusinessFlows.tsx\n M src/pages/Records.tsx\n M src/services/api.ts\n M src/store.tsx\n M tests/commercial.e2e.mjs\n?? docs/CAPACITY_PLAN.md\n?? server/idempotency.ts\n?? server/migrations/004_idempotency_cache.sql\n?? server/tests/idempotency.test.ts\n?? src/lib/mutationFeedback.ts\n?? src/lib/operationReplay.ts",
   "browserVerification": {
     "passed": true,
-    "finishedAt": "2026-10-04T21:21:35.861Z",
+    "finishedAt": "2026-10-05T16:25:29.001Z",
     "steps": [
       {
         "name": "真实注册和空经营空间",
@@ -17,7 +17,7 @@
         "passed": true
       },
       {
-        "name": "新建订单并分次收款，金额不重复记账",
+        "name": "分次收款丢失响应：过期重试和刷新确认均不重复记账",
         "passed": true
       },
       {
@@ -76,7 +76,7 @@
   },
   "authBrowserVerification": {
     "passed": true,
-    "finishedAt": "2026-10-04T21:21:53.912Z",
+    "finishedAt": "2026-10-05T16:25:43.413Z",
     "steps": [
       {
         "name": "注册后进入邮箱验证引导，不提前请求经营数据",
@@ -117,15 +117,17 @@
     ]
   },
   "postgresVerification": {
-    "finishedAt": "2026-10-04T21:22:37.320Z",
+    "finishedAt": "2026-10-05T16:16:27.565Z",
     "version": "postgres (PostgreSQL) 17.10",
     "clientVersion": "pg_dump (PostgreSQL) 17.11",
     "apiPassed": true,
     "recoveryPassed": true,
+    "idempotencyPassed": true,
     "normalRole": true,
     "productionConfigPassed": true,
     "dumpRestorePassed": true,
     "authStateRestorePassed": true,
+    "idempotencyStateRestorePassed": true,
     "stopped": true,
     "cleaned": true,
     "mappingRemoved": true

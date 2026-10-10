@@ -48,7 +48,7 @@ const adminName='yunji_test_admin',appName='yunji_test_app';
 const makeUrl=(name,password,database)=>`postgresql://${name}:${password}@127.0.0.1:${port}/${database}`;
 const dbName='yunji_api_test', restoredName='yunji_restore_test';
 const admin=new pg.Client({connectionString:makeUrl(adminName,adminPassword,'postgres')});
-const report={startedAt:new Date().toISOString(),database:'postgres',port,host:'127.0.0.1',version:'',apiPassed:false,recoveryPassed:false,normalRole:false,productionConfigPassed:false,dumpRestorePassed:false,authStateRestorePassed:false,stopped:false,cleaned:false,mappingRemoved:false};
+const report={startedAt:new Date().toISOString(),database:'postgres',port,host:'127.0.0.1',version:'',apiPassed:false,recoveryPassed:false,idempotencyPassed:false,normalRole:false,productionConfigPassed:false,dumpRestorePassed:false,authStateRestorePassed:false,idempotencyStateRestorePassed:false,stopped:false,cleaned:false,mappingRemoved:false};
 let started=false,adminConnected=false,appDb,source,restored,productionServer;
 
 try {
@@ -90,6 +90,8 @@ try {
   console.log(api.stdout); await writeFile(join(reports,'postgres-api.log'),api.stdout+api.stderr,'utf8'); report.apiPassed=true;
   const recovery=await command(process.execPath,['--experimental-strip-types','--test','server/tests/recovery.test.ts'],{cwd:root,env:{...process.env,RECOVERY_TEST_DATABASE_URL:appUrl},timeout:180000});
   console.log(recovery.stdout);await writeFile(join(reports,'postgres-recovery.log'),recovery.stdout+recovery.stderr,'utf8');report.recoveryPassed=true;
+  const idempotency=await command(process.execPath,['--experimental-strip-types','--test','server/tests/idempotency.test.ts'],{cwd:root,env:{...process.env,IDEMPOTENCY_TEST_DATABASE_URL:appUrl},timeout:180000});
+  console.log(idempotency.stdout);await writeFile(join(reports,'postgres-idempotency.log'),idempotency.stdout+idempotency.stderr,'utf8');report.idempotencyPassed=true;
   appDb=await openDatabase({url:appUrl});
   productionServer=createApp({db:appDb,config:{production:true,appOrigin:'https://yunji.example.test',inviteCode:'test-only-'+randomBytes(16).toString('hex'),smtp:{host:'smtp.example.test',port:587,user:'isolated-test',password:randomBytes(16).toString('hex'),from:'accounts@example.test'}},mailer:{async send(){throw new Error('This production configuration check must never send mail');}}}).listen(0,'127.0.0.1');
   await once(productionServer,'listening');
@@ -111,6 +113,10 @@ try {
       [randomUUID(),owner.id,index%2?'reset_password':'verify_email',randomBytes(32).toString('hex'),owner.email,owner.credential_version,new Date(Date.now()+3600000).toISOString(),status,sent,consumed,invalidated]);
   }
   await source.query('INSERT INTO auth_request_limits(key,window_started_at,attempts,next_allowed_at) VALUES($1,now(),3,now()+interval \'1 minute\')',[randomBytes(32).toString('hex')]);
+  // Exercise both a retained response and a permanent key whose response was removed.
+  const compacted=await source.query('UPDATE idempotency_keys SET response=NULL,response_bytes=0 WHERE (workspace_id,key)=(SELECT workspace_id,key FROM idempotency_keys ORDER BY workspace_id,key LIMIT 1) RETURNING key');
+  assert.equal(compacted.rows.length,1);
+  assert.ok((await source.query('SELECT key FROM idempotency_keys WHERE response IS NOT NULL')).rows.length>0);
   const dumpPath=join(dirname(dataDir),'test-backup.dump');
   const toolEnv={...process.env,PGHOST:'127.0.0.1',PGPORT:String(port),PGUSER:appName,PGPASSWORD:appPassword};
   await command(join(clientBin,'pg_dump.exe'),['--format=custom','--no-owner','--file',dumpPath,dbName],{env:toolEnv});
@@ -128,6 +134,8 @@ try {
   for(const sql of ['SELECT * FROM auth_tokens ORDER BY id','SELECT * FROM auth_request_limits ORDER BY key','SELECT id,password_hash,email_verified_at,credential_version FROM users ORDER BY id']) {
     assert.deepEqual((await restored.query(sql)).rows,(await source.query(sql)).rows);
   }
+  assert.deepEqual((await restored.query('SELECT * FROM idempotency_keys ORDER BY workspace_id,key')).rows,(await source.query('SELECT * FROM idempotency_keys ORDER BY workspace_id,key')).rows);
+  report.idempotencyStateRestorePassed=true;
   report.authStateRestorePassed=true;report.dumpRestorePassed=true;report.restoredSummary=actual;
   console.log('Production configuration and pg_dump/pg_restore checks passed.');
 } finally {

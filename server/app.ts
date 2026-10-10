@@ -13,8 +13,10 @@ import { createSmtpMailer, validateSmtp } from './mail.ts';
 import type { Mailer, SmtpConfig } from './mail.ts';
 import { createRecovery } from './recovery.ts';
 import type { RecoveryConfig } from './recovery.ts';
+import { createIdempotencyMaintenance, idempotencyPolicy } from './idempotency.ts';
+import type { IdempotencyCachePolicy } from './idempotency.ts';
 
-export interface AppConfig extends RecoveryConfig { production: boolean; inviteCode?: string; sessionTtlMs?: number; authRateLimit?: number; trustProxy?: boolean; staticDir?: string; smtp?: SmtpConfig; requireVerifiedEmail?: boolean }
+export interface AppConfig extends RecoveryConfig { production: boolean; inviteCode?: string; sessionTtlMs?: number; authRateLimit?: number; trustProxy?: boolean; staticDir?: string; smtp?: SmtpConfig; requireVerifiedEmail?: boolean; idempotencyCache?:Partial<IdempotencyCachePolicy> }
 const cookieName = 'yunji_commercial_session';
 const emailSchema = z.string().trim().email().max(254).transform(v => v.toLowerCase());
 const passwordSchema = z.string().min(12, '密码至少 12 位').max(128);
@@ -39,8 +41,11 @@ export function createApp({ db, config,mailer }: { db: Database; config: AppConf
   const auth={emailEnabled:!!actualMailer,verificationRequired:config.production||!!config.requireVerifiedEmail};
   if(auth.verificationRequired&&!auth.emailEnabled)throw new Error('要求邮箱验证时必须配置邮件服务');
   const recovery=createRecovery({db,config,mailer:actualMailer});
+  const cache=idempotencyPolicy(config.idempotencyCache);
+  const maintenance=createIdempotencyMaintenance(db,{onFailure:()=>console.error('[idempotency] cleanup failed')});
   const app = express(); app.disable('x-powered-by');
   app.locals.drainMail=()=>recovery.queue.drain();app.locals.closeMail=()=>recovery.queue.close();app.locals.mailStats=recovery.stats;
+  app.locals.startIdempotencyCleanup=maintenance.start;app.locals.runIdempotencyCleanup=maintenance.runOnce;app.locals.closeIdempotencyCleanup=maintenance.close;app.locals.idempotencyCleanupStats=maintenance.stats;
   if (config.trustProxy) app.set('trust proxy', 1);
   app.use((req, res, next) => {
     res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()' });
@@ -166,26 +171,26 @@ export function createApp({ db, config,mailer }: { db: Database; config: AppConf
   app.put('/api/records/:kind/:id', async (req, res) => {
     const identity = who(res), kind = parseKind(req.params.kind), id = parseId(req.params.id);
     const body = parse(z.object({ value: z.unknown() }).strict(), req.body);
-    res.json(await mutate(db, identity, businessHeaders(req), (tx, data) => putRecord(tx, identity.workspaceId, data, kind, id, body.value)));
+    res.json(await mutate(db, identity, businessHeaders(req), (tx, data) => putRecord(tx, identity.workspaceId, data, kind, id, body.value),cache));
   });
   app.delete('/api/records/:kind/:id', async (req, res) => {
     const identity = who(res), kind = parseKind(req.params.kind), id = parseId(req.params.id);
-    res.json(await mutate(db, identity, businessHeaders(req), (tx, data) => deleteRecord(tx, identity.workspaceId, data, kind, id)));
+    res.json(await mutate(db, identity, businessHeaders(req), (tx, data) => deleteRecord(tx, identity.workspaceId, data, kind, id),cache));
   });
   app.post('/api/orders/:id/payments', async (req, res) => {
     const identity = who(res), id = parseId(req.params.id);
-    res.json(await mutate(db, identity, businessHeaders(req), (tx, data) => addPayment(tx, identity.workspaceId, data, id, req.body)));
+    res.json(await mutate(db, identity, businessHeaders(req), (tx, data) => addPayment(tx, identity.workspaceId, data, id, req.body),cache));
   });
   app.post('/api/products/:id/stock-movements', async (req, res) => {
     const identity = who(res), id = parseId(req.params.id);
-    res.json(await mutate(db, identity, businessHeaders(req), (tx, data) => addMovement(tx, identity.workspaceId, data, id, req.body)));
+    res.json(await mutate(db, identity, businessHeaders(req), (tx, data) => addMovement(tx, identity.workspaceId, data, id, req.body),cache));
   });
   app.get('/api/audit', async (_req, res) => {
     const events = (await db.query('SELECT id,action,entity_kind AS "entityKind",entity_id AS "entityId",created_at AS "createdAt",before_state AS before,after_state AS after FROM audit_events WHERE workspace_id=$1 ORDER BY created_at DESC,id DESC LIMIT 200', [who(res).workspaceId])).rows;
     res.json({ events });
   });
   app.get('/api/backup', async (_req, res) => { const result = await snapshot(who(res)); res.json({ format: 'yunji-commercial-backup', version: 1, exportedAt: new Date().toISOString(), ...result }); });
-  app.post('/api/restore', async (req, res) => { const identity = who(res); res.json(await mutate(db, identity, businessHeaders(req), (tx, data) => restoreBackup(tx, identity.workspaceId, data, req.body))); });
+  app.post('/api/restore', async (req, res) => { const identity = who(res); res.json(await mutate(db, identity, businessHeaders(req), (tx, data) => restoreBackup(tx, identity.workspaceId, data, req.body),cache)); });
   app.post('/api/assistant', async (req, res) => {
     const body = parse(z.object({ question: z.string().trim().min(1).max(2000), history: z.array(z.object({ role: z.enum(['user','assistant']), content: z.string().max(10000) }).strict()).max(20).optional() }).strip(), req.body);
     const { data } = await snapshot(who(res)); res.json({ answer: rulesReply(body.question, data), mode: 'rules' });

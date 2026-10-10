@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,7 @@ const output=path.join(root,'test-results/commercial');
 await mkdir(output,{recursive:true});
 const temp=await mkdtemp(path.join(os.tmpdir(),'yunji-commercial-browser-'));
 const errors=[],steps=[];let browser,context,page,db,server,handler,base;
+let expectedNetworkFailures=0,observedNetworkFailures=0;
 const email=`browser-${randomUUID()}@example.test`,password='Browser-Only-2026!';
 const report={startedAt:new Date().toISOString(),steps,errors};
 async function boot(port=0){
@@ -23,7 +24,7 @@ async function boot(port=0){
   base=`http://127.0.0.1:${server.address().port}`;
   handler=createApp({db,config:{appOrigin:base,production:false,authRateLimit:1000,staticDir:path.join(root,'dist')}});
 }
-async function shutdown(){if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));server=null;}if(db){await db.close();db=null;}}
+async function shutdown(){if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));server=null;}if(handler?.locals.closeIdempotencyCleanup)await handler.locals.closeIdempotencyCleanup();if(handler?.locals.closeMail)await handler.locals.closeMail();if(db){await db.close();db=null;}}
 async function step(name,run){const start=Date.now();try{await run();steps.push({name,passed:true,ms:Date.now()-start});console.log(`PASS ${name}`);}catch(error){steps.push({name,passed:false,error:error.message});throw error;}}
 async function route(value){await page.goto(base+'/#'+value);await page.locator('.main-content').waitFor();}
 async function dialog(){const target=page.getByRole('dialog');await target.waitFor();return target;}
@@ -33,7 +34,7 @@ async function responseFor(predicate,action){const [response]=await Promise.all(
 async function saveForm(){const d=await dialog();const saved=page.waitForResponse(r=>r.url().includes('/api/records/')&&r.request().method()==='PUT');await d.getByRole('button',{name:'保存记录'}).click();const response=await saved;assert.equal(response.status(),200,await response.text());await d.waitFor({state:'hidden'});}
 async function snapshot(){return page.evaluate(async()=>{const r=await fetch('/api/data');if(!r.ok)throw Error('data '+r.status);return r.json();});}
 async function accountAction(name){await page.locator('.account-button').click();await page.getByRole('menuitem',{name}).click();}
-function watch(p){p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>{if(m.type()==='error'&&!/Failed to load resource: the server responded with a status of (401|409)/.test(m.text()))errors.push(m.text());});}
+function watch(p){p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>{if(m.type()!=='error')return;if(expectedNetworkFailures>0&&/net::ERR_FAILED/.test(m.text())){expectedNetworkFailures--;observedNetworkFailures++;return;}if(!/Failed to load resource: the server responded with a status of (401|409)/.test(m.text()))errors.push(m.text());});}
 
 try{
   await boot();
@@ -56,16 +57,43 @@ try{
     await page.getByRole('button',{name:'新增客户'}).click();d=await dialog();await d.getByLabel('客户名称',{exact:true}).fill('可删除客户');await d.getByLabel('联系人',{exact:true}).fill('李先生');await d.getByLabel('联系电话',{exact:true}).fill('13900000000');await saveForm();
     await page.getByRole('button',{name:'删除可删除客户',exact:true}).click();const deleted=page.waitForResponse(r=>r.request().method()==='DELETE');await page.getByRole('button',{name:'确认删除'}).click();assert.equal((await deleted).status(),200);assert.equal((await snapshot()).data.customers.length,1);
   });
-  await step('新建订单并分次收款，金额不重复记账',async()=>{
+  await step('分次收款丢失响应：过期重试和刷新确认均不重复记账',async()=>{
     await route('/orders');await page.getByRole('button',{name:'新增订单'}).click();let d=await dialog();await d.getByLabel('订单名称',{exact:true}).fill('验收服务订单');await select(d,'关联客户','验收客户已编辑');await d.getByLabel('订单金额（元）',{exact:true}).fill('1000');await saveForm();
     await page.getByRole('button',{name:'收退款',exact:true}).click();d=await dialog();
-    for(const amount of ['400','600']){
+    const paymentRequests=[];let dropNext=false;
+    const intercept=async route=>{
+      if(route.request().method()!=='POST')return route.continue();
+      const request=route.request(),key=request.headers()['idempotency-key'];paymentRequests.push({key,body:request.postData()});
+      if(!dropNext)return route.continue();dropNext=false;
+      try{
+        const committed=await route.fetch();assert.equal(committed.status(),200);
+        const cleared=await db.query("UPDATE idempotency_keys SET response=NULL,response_bytes=0,response_expires_at=now()-interval '1 second' WHERE key=$1 RETURNING committed_revision",[key]);assert.equal(cleared.rows.length,1);
+        expectedNetworkFailures++;await route.abort('failed');
+      }catch(error){errors.push('Payment fault injection failed: '+error.message);await route.abort('failed');}
+    };
+    await page.route('**/api/orders/*/payments',intercept);
+    for(const [index,amount] of ['400','600'].entries()){
       const field=d.getByLabel('收款金额（元）',{exact:true});await field.fill(amount);await field.press('Tab');assert.equal(Number(await field.inputValue()),Number(amount));await d.locator('.ant-btn-loading').waitFor({state:'hidden'});
-      const response=await responseFor(r=>r.url().includes('/payments')&&r.request().method()==='POST',()=>d.getByRole('button',{name:'登记收款',exact:true}).click());assert.equal(response.status(),200);
+      const before=await snapshot();dropNext=true;await d.getByRole('button',{name:'登记收款',exact:true}).click();
+      await d.getByRole('button',{name:'刷新并保留输入',exact:true}).waitFor();await d.locator('.ant-btn-loading').waitFor({state:'hidden'});
+      const committed=await snapshot();assert.equal(committed.revision,before.revision+1);assert.equal(committed.data.receipts.length,index+1);
+      if(amount==='400'){
+        const response=await responseFor(r=>r.url().includes('/payments')&&r.request().method()==='POST',()=>d.getByRole('button',{name:'登记收款',exact:true}).click());assert.equal(response.status(),200);
+        const result=await response.json();assert.equal(result.idempotency.responseExpired,true);assert.equal(result.idempotency.committedRevision,committed.revision);assert.deepEqual(paymentRequests[1],paymentRequests[0]);
+      }else{
+        const refreshed=await responseFor(r=>r.url().endsWith('/api/data')&&r.request().method()==='GET',()=>d.getByRole('button',{name:'刷新并保留输入',exact:true}).click());assert.equal(refreshed.status(),200);
+        await d.getByRole('button',{name:'登记收款',exact:true}).click();
+      }
+      await page.getByText('该操作此前已完成，已刷新当前数据',{exact:true}).waitFor();
       // HTTP completion precedes React's reset and unlock; wait before entering the next receipt.
       await page.waitForFunction(()=>{const field=document.getElementById('order-payments_amount');return field&&!field.disabled&&field.value==='';});
       await d.locator('.ant-btn-loading').waitFor({state:'hidden'});
+      assert.equal((await snapshot()).revision,committed.revision);
+      // Each retry has its own success notice; wait for the prior notice to leave
+      // before asserting the identical text for the next independent payment.
+      await page.getByText('该操作此前已完成，已刷新当前数据',{exact:true}).waitFor({state:'hidden'});
     }
+    await page.unroute('**/api/orders/*/payments',intercept);assert.equal(paymentRequests.length,3);assert.equal(expectedNetworkFailures,0);assert.equal(observedNetworkFailures,2);
     assert.equal((await snapshot()).data.orders[0].paidAmount,1000);
     await d.getByRole('button',{name:/^关\s*闭$/}).click();
   });
@@ -100,6 +128,7 @@ try{
   await step('空间设置与操作审计可见',async()=>{await route('/settings');await page.locator('.ant-table-row').first().waitFor();assert.ok(await page.locator('.ant-table-row').count()>0);});
   await step('真实导出与空空间导入备份',async()=>{
     const before=await snapshot();const downloadEvent=page.waitForEvent('download');await accountAction('导出经营备份');const download=await downloadEvent;const file=path.join(temp,'business-backup.json');await download.saveAs(file);
+    const exported=await readFile(file,'utf8');assert.equal(exported,JSON.stringify(JSON.parse(exported)),'Backup must not add indentation beyond the import size budget');
     const restorePage=await(await browser.newContext({viewport:{width:1440,height:1000},locale:'zh-CN'})).newPage();watch(restorePage);await restorePage.goto(base);await restorePage.getByText('创建空间',{exact:true}).click();await restorePage.getByLabel('你的姓名',{exact:true}).fill('恢复验收');await restorePage.getByLabel('经营空间名称',{exact:true}).fill('恢复空间');await restorePage.getByLabel('邮箱',{exact:true}).fill(`restore-${randomUUID()}@example.test`);await restorePage.getByLabel('密码',{exact:true}).fill(password);await restorePage.getByLabel('确认密码',{exact:true}).fill(password);await restorePage.getByRole('button',{name:'创建经营空间'}).click();await restorePage.locator('.main-content').waitFor();await restorePage.locator('input[type=file]').setInputFiles(file);const done=restorePage.waitForResponse(r=>r.url().includes('/api/restore'));await restorePage.getByRole('button',{name:'校验并恢复'}).click();assert.equal((await done).status(),200);const restored=await restorePage.evaluate(async()=>(await(await fetch('/api/data')).json()).data);for(const key of ['customers','orders','products','transactions','receipts','stockMovements'])assert.equal(restored[key].length,before.data[key].length,key);await restorePage.context().close();
   });
   await step('服务与数据库重启后账户和经营数据保留',async()=>{

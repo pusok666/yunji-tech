@@ -8,6 +8,7 @@ import { ledger, money, outstanding, today, total, round } from '../lib/business
 import { PageHeading } from '../components/Shared';
 import { ConflictNotice, OrderPayments, StockAdjust } from '../components/BusinessFlows';
 import { createMessageId } from '../lib/messageId';
+import { mutationMessage } from '../lib/mutationFeedback';
 import { mergeEditedFields, type FieldConflict } from '../lib/editMerge';
 import { statusColors } from './Dashboard';
 import type { Customer, Entity, EntityKey, Order, Product, Transaction } from '../types';
@@ -65,10 +66,10 @@ export default function Records({kind}:{kind:EntityKey}) {
       }
       if(kind==='orders'&&'paidAmount' in value){value.amount=round(value.amount);value.paidAmount=editing?data.orders.find(o=>o.id===editing.id)?.paidAmount||0:0;}
       if(kind==='products'&&editing&&'stock' in value)value.stock=data.products.find(p=>p.id===editing.id)?.stock??value.stock;
-      setSaving(true);await save(kind,value);message.success(meta.singular+(editing?'已更新':'已创建')+'，已保存到服务器');setOpen(false);
+      setSaving(true);const outcome=await save(kind,value);message.success(mutationMessage(outcome,meta.singular+(editing?'已更新':'已创建')+'，已保存到服务器'));setOpen(false);
     }catch(e){if(e instanceof Error)message.error(e.message);}finally{setSaving(false);}
   }
-  async function onDelete(row:Entity){try{await remove(kind,row.id);message.success('记录已删除');if(filtered.length%8===1&&page>1)setPage(page-1);}catch(e){message.error((e as Error).message);}}
+  async function onDelete(row:Entity){try{const outcome=await remove(kind,row.id);message.success(mutationMessage(outcome,'记录已删除'));if(filtered.length%8===1&&page>1)setPage(page-1);}catch(e){message.error((e as Error).message);}}
   const actions={title:'操作',key:'actions',width:kind==='orders'||kind==='products'?190:112,fixed:'right' as const,render:(_:unknown,row:Entity)=>'orderId' in row&&row.orderId?<Tooltip title="独立收退款流水保留历史，请在订单中查看"><Button type="link" size="small" icon={<LinkOutlined/>} onClick={()=>navigate(`/orders?search=${row.orderId}`)}>订单流水</Button></Tooltip>:<Space size={4}>{(kind==='orders'||kind==='products')&&<Button type="link" size="small" onClick={()=>setFlowId(row.id)}>{kind==='orders'?'收退款':'出入库'}</Button>}<Button aria-label={`编辑${'name' in row?row.name:row.title}`} icon={<EditOutlined/>} size="small" type="text" onClick={()=>openEditor(row)}/><Popconfirm title="确定删除这条记录？" description="已有收退款或库存流水的记录受保护，无法删除。" onConfirm={()=>onDelete(row)} okText="确认删除" cancelText="取消"><Button aria-label={`删除${'name' in row?row.name:row.title}`} icon={<DeleteOutlined/>} size="small" type="text" danger/></Popconfirm></Space>};
   useEffect(()=>{setSearch(params.get('search')||'');},[params]);
   const columns:ColumnsType<Entity>=kind==='customers'?[

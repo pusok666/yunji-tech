@@ -8,6 +8,7 @@
 - 开发前端 5174，API 4100；Windows 启动器只管理本目录的两个进程，不停止其他端口进程。
 - 本机 `.local/database` 是独立 PGlite 数据库；正式部署要求 PostgreSQL，不能复制浏览器 localStorage 当作数据库。
 - 经营 JSON 备份只有单个空间的业务记录，不含账号、密码、会话、认证令牌或配置，不能代替整库备份。
+- JSON 导出采用紧凑格式，导入仍限制 5 MiB；减少缩进只降低文件体积，不保证任意规模数据都能导回。当前未实现 10,000 条/4 MiB 等业务容量硬上限。
 - 默认经营日期、周/月/年范围及审计时间展示统一按北京时间（`Asia/Shanghai`）；服务器和浏览器宿主时区不改变经营日期。
 
 ## 部署方式
@@ -35,6 +36,28 @@
 6. 配置 `/api/health` 存活检查、错误日志、费用告警和数据库备份，确定实际接收告警与处理故障的人。
 
 生产缺少 HTTPS 来源、邀请码、PostgreSQL 或完整 SMTP 配置会拒绝启动。配置检查通过不证明 SMTP 连通、发信身份正确或邮件已经到达；这些必须在真实服务上逐项验收。本机开发 `.env` 不应直接复制为生产配置。
+
+## 请求去重与响应缓存维护
+
+每个空间的 `idempotency_keys` 长期保留 key、request_hash 和 committed_revision，保障同一成功请求不会再次执行。不能将这些凭据按 24 小时清除；清理目标仅为完整 response 快照缓存。
+
+- 每空间缓存最长 24 小时、最多 32 个完整响应、合计最多 32 MiB（数据库 UTF-8 JSON 文本）。任一预算超出时可提前压缩旧响应；这不是业务记录或订阅额度。
+- 后台分批清理过期 response，写入时也检查缓存预算；清理与业务写入使用同空间锁。response 置空后，key、散列及原提交版本仍存在，不重新执行已完成操作。
+- 相同 key 和内容的缓存已清理时，仍返回 HTTP 200 当前快照及 `idempotency:{replayed:true,responseExpired:true,committedRevision}`，不新增版本、流水或审计。前端明确显示「该操作此前已完成，已刷新当前数据」。
+- 网络或 5xx 后，收退款/库存弹窗内可「刷新并保留输入」。同 intent 的服务器流水全部字段一致才只确认完成；不同字段拒绝再次提交，无同 ID 时仍校验当前余额/库存并重用原请求键。
+- 重试信息仅在当前页面内存保存，经营数据刷新保留，整页重载、关闭页面或退出后不保留。用户重新录入前须核对历史流水，不能把这项能力当作持久离线队列。
+
+### 从 003 升级到 004
+
+1. 安排维护窗口，停止连接该数据库的所有旧应用实例和后台写入。不要让旧应用与新版迁移并行运行。
+2. 用官方工具备份整库并验证可在独立空库恢复。备份必须包含 `idempotency_keys`；先在专用测试库演练 003→004，确认账号、业务与原去重凭据保留。
+3. 启动新版执行 `004_idempotency_cache.sql`。首次升级会回填提交版本、到期时间和响应字节数，并压缩历史缓存；处理成本随旧数据量变化，不能把后台每轮有界等同于首次迁移耗时固定。
+4. 检查迁移版本 4、既有经营数据和去重字段，再验收原请求回放、过期响应回放和新写入；检查通过后恢复服务。
+5. **禁止把不兼容的旧镜像直接连回迁移后的数据库。** 004 允许 response=NULL，旧版并不支持这种永久去重凭据。需要回退时先停写，按独立恢复方案选择兼容应用或验证过的迁移前备份，并明确处理升级后新增数据；不能直接删除新列或去重记录。
+
+### 幂等测试数据库
+
+`pnpm check` 已包含 `pnpm test:idempotency`，也可单独运行后者。默认使用隔离 PGlite；`IDEMPOTENCY_TEST_DATABASE_URL` 指向专用 PostgreSQL 测试库时，测试创建 `yunji_idempotency_test_<随机值>` schema，将连接 search_path 限于它，结束仅删除自己的 schema，不清理 public。未指定时可继承 `RECOVERY_TEST_DATABASE_URL`；测试账号需有创建 schema 权限，任何测试连接都不得指向生产库。迁移用例另建独立 schema，真正从 001–003 升到 004 并复查再次启动。
 
 ## 邮件与账号维护
 
@@ -76,6 +99,7 @@
 2. 使用官方 `pg_dump --format=custom` 制作独立备份。凭据放服务商密钥或受保护的 PostgreSQL service/密码文件，不写进命令历史；备份加密、限制访问并设置保留周期。
 3. 使用 `pg_restore --exit-on-error --no-owner` 恢复到全新的测试空库，核对账号、空间、客户、订单、资金与库存流水、审计，以及收款净额和库存余额。
 4. 邮件迁移后，恢复检查必须包括 `users` 的密码散列、验证状态与凭据版本，及**非空** `auth_tokens`、`auth_request_limits` 的全部业务字段；只比较空表数量不够。
+   004 后还必须核对全部永久 `idempotency_keys` 的 key、request_hash、committed_revision、到期/字节/审计关联字段，以及 response 已置空的记录；恢复时不能丢掉这些凭据，否则旧请求可能再次执行。
 5. 真正灾难恢复可能恢复旧会话和旧令牌。切换生产前明确撤销恢复库内旧会话/未消费令牌的方案，并让用户重新登录或申请；不要让旧备份重新激活已作废凭据。
 6. 恢复演练不覆盖运行中的数据库。通过演练后，发生故障时才按确认的恢复流程切换连接。JSON 备份仍只用于恢复到新的空经营空间。
 
@@ -90,9 +114,9 @@ pg_restore --dbname="service=yunji_restore_empty" --exit-on-error --no-owner "yu
 
 ### 本机已验证范围
 
-2026-10-05（北京时间）完成独立 PostgreSQL 17.10 普通 owner 账号的 API 22 项与账号恢复 19 项测试，并用官方 PostgreSQL 17.11 客户端进行 custom 备份、第二空库恢复。11 张表恢复一致；额外覆盖 4 条认证令牌（sent/pending/consumed/failed）、1 条限流记录的完整字段，以及 users 的密码散列、验证状态和凭据版本，`authStateRestorePassed=true`。临时集群和本机映射已清理。
+2026-10-06（北京时间）本轮使用独立 PostgreSQL 17.10 普通 owner 账号通过 API 22、账号恢复 19、幂等 15 项测试，并用官方 PostgreSQL 17.11 客户端进行 custom 备份、第二空库恢复。11 张表恢复一致；额外覆盖 4 条认证令牌（sent/pending/consumed/failed）、1 条限流记录、users 密码散列/验证状态/凭据版本，以及全部永久去重记录与 response 已清空的记录，`authStateRestorePassed=true`、`idempotencyStateRestorePassed=true`。临时集群和本机映射已清理。
 
-脚本：`scripts/test-postgres.mjs`；本机报告：`.local/test-results/postgres-verification.json`，本轮完成时间 `2026-10-04T21:22:37Z`。该结果证明本机恢复链路，不代替云端自动备份、实际恢复耗时、真实 SMTP 或远端 CI 验收。
+脚本：`scripts/test-postgres.mjs`；本机报告：`.local/test-results/postgres-verification.json`，本轮完成时间 `2026-10-05T16:16:27.565Z`。该结果证明本机恢复链路，不代替云端自动备份、实际恢复耗时、真实 SMTP 或远端 CI 验收。
 
 官方参考：[PostgreSQL 备份](https://www.postgresql.org/docs/17/backup.html)、[Express 生产安全](https://expressjs.com/en/advanced/best-practice-security/)、[PGlite 本地存储](https://pglite.dev/docs/filesystems)。
 
@@ -101,7 +125,7 @@ pg_restore --dbname="service=yunji_restore_empty" --exit-on-error --no-owner "yu
 - 每次发布记录 Git 提交、镜像、迁移版本和实际验收结果；先在测试库验证迁移，生产发布前确认可恢复备份。
 - 只有确认新结构兼容旧应用时才直接回退镜像，否则按独立恢复流程操作。账号恢复迁移新增的验证/凭据版本和令牌状态不能被旧版逻辑绕过。
 - 不运行汇报版同步脚本；商业版对应脚本已禁用。升级不重新初始化数据库。
-- 当前本地最终集成：业务 13、API 22、安全 8、恢复 19，共 62 项通过；经营浏览器 16/16、邮件浏览器 9/9，错误列表均为空；`pnpm audit --prod` 未发现已知生产依赖漏洞。远端 CI 需以最终提交实际工作流为准。
+- 本轮本地 check 的构建、前后端类型检查及业务 13、API 22、安全 8、恢复 19、幂等 15 项，共 77 项通过。经营浏览器 16/16、账号恢复浏览器 9/9 最终回归通过，两份报告的非预期错误列表均为空；完成时间分别为 `2026-10-05T16:25:29.001Z`、`2026-10-05T16:25:43.413Z`。远端 CI 需以本轮最终提交实际工作流为准，不能沿用上一阶段绿色结果。
 
 ## 当前商业化门槛
 

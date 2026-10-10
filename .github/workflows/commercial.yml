@@ -36,6 +36,10 @@ jobs:
         run: pnpm run test:recovery
         env:
           RECOVERY_TEST_DATABASE_URL: postgresql://yunji_ci:isolated-ci-only@127.0.0.1:5432/yunji_ci
+      - name: Real PostgreSQL idempotency cache validation
+        run: pnpm run test:idempotency
+        env:
+          IDEMPOTENCY_TEST_DATABASE_URL: postgresql://yunji_ci:isolated-ci-only@127.0.0.1:5432/yunji_ci
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run test:e2e
       - run: pnpm run test:auth:e2e

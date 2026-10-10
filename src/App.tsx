@@ -4,6 +4,7 @@ import { Alert, Avatar, Button, Dropdown, Modal, Result, Spin, Tooltip, App as A
 import { AppstoreOutlined, BarChartOutlined, BellOutlined, CloudOutlined, DownOutlined, DownloadOutlined, FileTextOutlined, InboxOutlined, LogoutOutlined, MenuOutlined, QuestionCircleOutlined, ReloadOutlined, SettingOutlined, TeamOutlined, ThunderboltOutlined, UploadOutlined, WalletOutlined } from '@ant-design/icons';
 import { needsEmailVerification, useStore, type Backup } from './store';
 import { metrics, today } from './lib/business';
+import { mutationMessage } from './lib/mutationFeedback';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Records from './pages/Records';
@@ -18,7 +19,7 @@ function Workspace(){
   const [mobile,setMobile]=useState(false);const [help,setHelp]=useState(false);const [refreshing,setRefreshing]=useState(false);
   const file=useRef<HTMLInputElement>(null);const m=metrics(data);const current=nav.find(n=>n.path===location.pathname)?.title||'经营概览';
   async function reload(){setRefreshing(true);try{await refresh();message.success('已读取服务器最新数据');}catch(e){message.error((e as Error).message);}finally{setRefreshing(false);}}
-  async function exportData(){try{const backup=await exportBackup();const url=URL.createObjectURL(new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`云迹科技-经营备份-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);message.success('备份已导出');}catch(e){message.error((e as Error).message);}}
+  async function exportData(){try{const backup=await exportBackup();const url=URL.createObjectURL(new Blob([JSON.stringify(backup)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`云迹科技-经营备份-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);message.success('备份已导出');}catch(e){message.error((e as Error).message);}}
   async function importData(selected?:File){
     if(!selected)return;
     try{
@@ -26,7 +27,7 @@ function Workspace(){
       const parsed=JSON.parse(await selected.text()) as Backup;
       if(parsed?.format!=='yunji-commercial-backup'||parsed.version!==1||!parsed.data)throw new Error('请选择商业化版本导出的经营备份文件。');
       if(data.customers.length||data.orders.length||data.products.length||data.transactions.length||data.receipts?.length||data.stockMovements?.length)throw new Error('仅空工作空间可恢复备份，当前数据不会被覆盖。');
-      modal.confirm({title:'将备份恢复到当前空工作空间？',content:'服务器将校验客户关联、收退款和库存流水。账号信息不会导入。',okText:'校验并恢复',cancelText:'取消',onOk:async()=>{try{await restore(parsed);message.success('经营备份已恢复');}catch(e){message.error((e as Error).message);throw e;}}});
+      modal.confirm({title:'将备份恢复到当前空工作空间？',content:'服务器将校验客户关联、收退款和库存流水。账号信息不会导入。',okText:'校验并恢复',cancelText:'取消',onOk:async()=>{try{const outcome=await restore(parsed);message.success(mutationMessage(outcome,'经营备份已恢复'));}catch(e){message.error((e as Error).message);throw e;}}});
     }catch(e){message.error((e as Error).message);}finally{if(file.current)file.current.value='';}
   }
   async function signOut(){try{await logout();navigate('/login');}catch(e){message.error((e as Error).message);}}

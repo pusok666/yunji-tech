@@ -2,9 +2,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Database, Executor } from './db.ts';
 import { cents, dataSchema, emptyData, entitySchemas, fail, idSchema, movementSchema, parse, receiptSchema, today, validateRelations } from './validation.ts';
 import type { BusinessData, Kind } from './validation.ts';
+import { compactWorkspaceResponses, DEFAULT_IDEMPOTENCY_CACHE } from './idempotency.ts';
+import type { IdempotencyCachePolicy } from './idempotency.ts';
 
 export type Identity = { userId: string; workspaceId: string; sessionHash: string; csrfToken: string; email: string; name: string; workspaceName: string; emailVerified: boolean };
-export type Snapshot = { data: BusinessData; revision: number };
+export type Snapshot = { data: BusinessData; revision: number; idempotency?: {replayed:true;responseExpired:true;committedRevision:number} };
 export async function readSnapshot(tx: Executor, workspaceId: string): Promise<Snapshot> {
   const data = emptyData();
   const workspace = (await tx.query('SELECT revision FROM workspaces WHERE id=$1', [workspaceId])).rows[0];
@@ -26,20 +28,36 @@ function auditSummary(data: BusinessData, event: { kind: string; id: string }) {
   if (!entity) return null;
   return Object.fromEntries((fields[event.kind] ?? ['id']).filter(key => entity[key] !== undefined).map(key => [key, entity[key]]));
 }
-export async function mutate(db: Database, who: Identity, request: { revision: number; key: string; method: string; path: string; body: unknown }, action: (tx: Executor, data: BusinessData) => Promise<{ action: string; kind: string; id: string }>): Promise<Snapshot> {
+export async function mutate(db: Database, who: Identity, request: { revision: number; key: string; method: string; path: string; body: unknown }, action: (tx: Executor, data: BusinessData) => Promise<{ action: string; kind: string; id: string }>, cache:IdempotencyCachePolicy=DEFAULT_IDEMPOTENCY_CACHE): Promise<Snapshot> {
   const hash = createHash('sha256').update(stable({ method: request.method, path: request.path, body: request.body ?? null })).digest('hex');
   return db.transaction(async tx => {
     const row = (await tx.query('SELECT revision FROM workspaces WHERE id=$1 FOR UPDATE', [who.workspaceId])).rows[0];
     if (!row) fail('工作空间不存在', 404);
-    const previous = (await tx.query('SELECT request_hash,response FROM idempotency_keys WHERE workspace_id=$1 AND key=$2', [who.workspaceId, request.key])).rows[0];
-    if (previous) { if (previous.request_hash !== hash) fail('同一请求编号已用于其他操作', 409, 'IDEMPOTENCY_CONFLICT'); return previous.response; }
+    const previous = (await tx.query('SELECT request_hash,committed_revision FROM idempotency_keys WHERE workspace_id=$1 AND key=$2', [who.workspaceId, request.key])).rows[0];
+    if (previous) {
+      if (previous.request_hash !== hash) fail('同一请求编号已用于其他操作', 409, 'IDEMPOTENCY_CONFLICT');
+      await compactWorkspaceResponses(tx,who.workspaceId,cache);
+      const cached=(await tx.query('SELECT response FROM idempotency_keys WHERE workspace_id=$1 AND key=$2 AND response_expires_at>now()',[who.workspaceId,request.key])).rows[0];
+      if(cached?.response)return cached.response;
+      return {...await readSnapshot(tx,who.workspaceId),idempotency:{replayed:true,responseExpired:true,committedRevision:previous.committed_revision}};
+    }
     if (row.revision !== request.revision) fail('数据已被其他操作更新，请刷新后重试', 409, 'REVISION_CONFLICT');
     const { data } = await readSnapshot(tx, who.workspaceId);
     const audit = await action(tx, data);
     await tx.query('UPDATE workspaces SET revision=revision+1 WHERE id=$1', [who.workspaceId]);
     const result = await readSnapshot(tx, who.workspaceId);
-    await tx.query('INSERT INTO audit_events(id,workspace_id,user_id,action,entity_kind,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)', [randomUUID(), who.workspaceId, who.userId, audit.action, audit.kind, audit.id, JSON.stringify(auditSummary(data, audit)), JSON.stringify(auditSummary(result.data, audit))]);
-    await tx.query('INSERT INTO idempotency_keys(workspace_id,key,request_hash,response) VALUES($1,$2,$3,$4::jsonb)', [who.workspaceId, request.key, hash, JSON.stringify(result)]);
+    const auditId=randomUUID();
+    await tx.query('INSERT INTO audit_events(id,workspace_id,user_id,action,entity_kind,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)', [auditId, who.workspaceId, who.userId, audit.action, audit.kind, audit.id, JSON.stringify(auditSummary(data, audit)), JSON.stringify(auditSummary(result.data, audit))]);
+    // Oversized responses are returned to this caller but never stored as a large
+    // cache value. The durable request receipt still commits with the business.
+    await tx.query(`WITH value AS (SELECT $4::jsonb AS body), measured AS (
+      SELECT body,octet_length(body::text) AS bytes FROM value
+    ) INSERT INTO idempotency_keys(workspace_id,key,request_hash,response,committed_revision,response_expires_at,response_bytes,audit_event_id)
+      SELECT $1,$2,$3,CASE WHEN $7>0 AND $8>0 AND bytes<=$9 THEN body ELSE NULL END,$5,
+        now()+($7::double precision*interval '1 millisecond'),
+        CASE WHEN $7>0 AND $8>0 AND bytes<=$9 THEN bytes ELSE 0 END,$6 FROM measured`,
+    [who.workspaceId,request.key,hash,JSON.stringify(result),result.revision,auditId,cache.ttlMs,cache.maxEntries,cache.maxBytes]);
+    await compactWorkspaceResponses(tx,who.workspaceId,cache);
     return result;
   });
 }

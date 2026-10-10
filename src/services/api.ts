@@ -1,6 +1,7 @@
 export class ApiError extends Error {
   constructor(message: string, public status: number, public code?: string) { super(message); }
 }
+export class UnconfirmedRequestError extends Error {}
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
@@ -12,6 +13,6 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     return body as T;
   } catch(error) {
     if(error instanceof ApiError)throw error;
-    throw new Error(error instanceof Error && error.name==='AbortError'?'请求超时。写入结果尚未确认，请重试同一操作或刷新检查。':'连接服务器失败。请检查网络后重试，未确认保存的内容仍保留在表单中。');
+    throw new UnconfirmedRequestError(error instanceof Error && error.name==='AbortError'?'请求超时。写入结果尚未确认，请重试同一操作或刷新检查。':'连接服务器失败。请检查网络后重试，未确认保存的内容仍保留在表单中。');
   } finally {clearTimeout(timer);}
 }

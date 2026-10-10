@@ -17,7 +17,8 @@
     "test:api": "node --experimental-strip-types --test tests/api.test.mjs",
     "test:security": "node --experimental-strip-types --test server/tests/hardening.test.ts",
     "test:recovery": "node --experimental-strip-types --test server/tests/recovery.test.ts",
-    "check": "pnpm run build && pnpm run typecheck:server && pnpm run test && pnpm run test:api && pnpm run test:security && pnpm run test:recovery",
+    "test:idempotency": "node --experimental-strip-types --test server/tests/idempotency.test.ts",
+    "check": "pnpm run build && pnpm run typecheck:server && pnpm run test && pnpm run test:api && pnpm run test:security && pnpm run test:recovery && pnpm run test:idempotency",
     "checkpoint": "node scripts/checkpoint.mjs"
   },
   "engines": {
